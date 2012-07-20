@@ -226,7 +226,10 @@ setdepth([Q|Quotes], Depth) ->
   [Q|setdepth(Quotes, Depth - 1)].
 
 bidask_delta([[_|_] = Bid1, [_|_] = Ask1], [[_|_] = Bid2, [_|_] = Ask2]) ->
-  [bidask_delta(Bid1, Bid2), bidask_delta(Ask1, Ask2)];
-bidask_delta([{Price1, Volume1}|Tail1], [{Price2, Volume2}|Tail2]) ->
-  [{Price2 - Price1, Volume2 - Volume1}|bidask_delta(Tail1, Tail2)].
+  [bidask_delta1(Bid1, Bid2), bidask_delta1(Ask1, Ask2)].
+
+bidask_delta1(List1, List2) ->
+  lists:zipwith(fun({Price1, Volume1}, {Price2, Volume2}) ->
+    {Price2 - Price1, Volume2 - Volume1}
+  end, List1, List2).
 

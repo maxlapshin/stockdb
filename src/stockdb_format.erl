@@ -30,4 +30,4 @@ encode_delta_md(TimeDelta, BidAskDelta) ->
   <<Unpadded/bitstring, 0:MissingBits/integer>>.
 
 encode_delta_value(0) -> <<0:1>>;
-encode_delta_value(V) -> leb128:encode_signed(V).
+encode_delta_value(V) -> <<1:1, (leb128:encode_signed(V))/bitstring>>.
