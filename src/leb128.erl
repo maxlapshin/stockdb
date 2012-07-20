@@ -14,7 +14,7 @@ encode_signed(Value) when is_integer(Value) andalso Value >= 0 ->
   <<0:1, (encode(Value))/bitstring>>;
 
 encode_signed(Value) when is_integer(Value) andalso Value < 0 ->
-  <<1:1, (encode(Value))/bitstring>>.
+  <<1:1, (encode(-Value))/bitstring>>.
 
 
 -spec encode(non_neg_integer()) -> binary().
