@@ -8,7 +8,7 @@
 -export([open/2, read/1, append/2, close/1]).
 
 -define(STOCKDB_OPTIONS, [
-    {vervion, 1},
+    {version, 1},
     {stock, undefined},
     {date, utcdate()},
     {depth, 10},
@@ -16,29 +16,35 @@
     {chunk_size, 300} % seconds
   ]).
 -define(CHUNKUNITS, seconds). % This has to be function name in timer module
+-define(OFFSETLEN, 32).
 
 -record(dbstate, {
+    version,
     file,
     stock,
+    date,
     depth,
     scale,
     chunk_size,
     last_timestamp = 0,
     last_bidask,
     next_chunk_time = 0,
-    chunk_map_offset
+    chunk_map_offset,
+    daystart
   }).
 
-parse_opts([], State) ->
-  State;
-parse_opts([{stock, Stock}|MoreOpts], State) ->
-  parse_opts(MoreOpts, State#dbstate{stock = Stock});
-parse_opts([{depth, Depth}|MoreOpts], State) ->
-  parse_opts(MoreOpts, State#dbstate{depth = Depth});
-parse_opts([{scale, Scale}|MoreOpts], State) ->
-  parse_opts(MoreOpts, State#dbstate{scale = Scale});
-parse_opts([{chunk_size, CSize}|MoreOpts], State) ->
-  parse_opts(MoreOpts, State#dbstate{chunk_size = CSize});
+-define(PARSEOPT(OptName),
+  parse_opts([{OptName, Value}|MoreOpts], State) ->
+    parse_opts(MoreOpts, State#dbstate{OptName = Value})).
+
+parse_opts([], State) -> State;
+?PARSEOPT(version);
+?PARSEOPT(file);
+?PARSEOPT(stock);
+?PARSEOPT(date);
+?PARSEOPT(depth);
+?PARSEOPT(scale);
+?PARSEOPT(chunk_size);
 parse_opts([Unknown|MoreOpts], State) ->
   ?D({unknown_option, Unknown}),
   parse_opts(MoreOpts, State).
@@ -135,9 +141,15 @@ read(FileName) ->
 close(#dbstate{file = File} = _State) ->
   file:close(File).
 
-append({md, Timestamp, Bid, Ask}, State) ->
-  {error, not_implemented}.
 
+append({md, Timestamp, _Bid, _Ask} = MD, #dbstate{last_bidask = undefined} = State) ->
+  append_full_md(MD, start_chunk(Timestamp, State));
+
+append({md, Timestamp, _Bid, _Ask} = MD, #dbstate{next_chunk_time = NCT} = State) when Timestamp >= NCT ->
+  append_full_md(MD, start_chunk(Timestamp, State));
+
+append({md, _Timestamp, _Bid, _Ask} = MD, #dbstate{} = State) ->
+  append_delta_md(MD, State).
 
 
 write_header(File, StockDBOpts) ->
@@ -156,9 +168,65 @@ write_chunk_map(File, StockDBOpts) ->
   ChunkSize = proplists:get_value(chunk_size, StockDBOpts),
   ChunkCount = erlang:round(timer:hours(24)/timer:?CHUNKUNITS(ChunkSize)) + 1,
 
-  ChunkLen = 32,
-  ChunkMap = [<<0:ChunkLen>> || _ <- lists:seq(1, ChunkCount)],
-  Size = ChunkLen * ChunkCount,
+  ChunkMap = [<<0:?OFFSETLEN>> || _ <- lists:seq(1, ChunkCount)],
+  Size = ?OFFSETLEN * ChunkCount,
 
   ok = file:write(File, ChunkMap),
   {ok, Size}.
+
+start_chunk(Timestamp, #dbstate{daystart = undefined, date = Date} = State) ->
+  DaystartSeconds = calendar:datetime_to_gregorian_seconds({Date, {0,0,0}}) - calendar:datetime_to_gregorian_seconds({{1970,1,1}, {0,0,0}}),
+  Daystart = DaystartSeconds * 1000,
+  start_chunk(Timestamp, State#dbstate{daystart = Daystart});
+
+start_chunk(Timestamp, State) ->
+  #dbstate{
+    daystart = Daystart,
+    chunk_size = ChunkSize,
+    chunk_map_offset = ChunkMapOffset,
+    file = File} = State,
+
+  ChunkSizeMs = timer:?CHUNKUNITS(ChunkSize),
+  ChunkNumber = (Timestamp - Daystart) div ChunkSizeMs,
+
+  {ok, EOF} = file:position(File, eof),
+  ChunkOffset = EOF - ChunkMapOffset,
+
+  ok = file:pwrite(File, {bof, ChunkMapOffset + ChunkNumber*?OFFSETLEN}, <<ChunkOffset:?OFFSETLEN>>),
+
+  NextChunkTime = Daystart + ChunkSizeMs * (ChunkNumber + 1),
+
+  State#dbstate{next_chunk_time = NextChunkTime}.
+  
+
+append_full_md({md, Timestamp, Bid, Ask}, #dbstate{depth = Depth, file = File} = State) ->
+  BidAsk = [setdepth(Bid, Depth), setdepth(Ask, Depth)],
+  Data = stockdb_format:encode_full_md(Timestamp, BidAsk),
+  ok = file:pwrite(File, eof, Data),
+  {ok, State#dbstate{
+      last_timestamp = Timestamp,
+      last_bidask = BidAsk}
+  }.
+
+append_delta_md({md, Timestamp, Bid, Ask}, #dbstate{depth = Depth, file = File, last_timestamp = LastTS, last_bidask = LastBA} = State) ->
+  BidAsk = [setdepth(Bid, Depth), setdepth(Ask, Depth)],
+  BidAskDelta = bidask_delta(LastBA, BidAsk),
+  Data = stockdb_format:encode_delta_md(Timestamp - LastTS, BidAskDelta),
+  ok = file:pwrite(File, eof, Data),
+  {ok, State#dbstate{
+      last_timestamp = Timestamp,
+      last_bidask = BidAsk}
+  }.
+
+setdepth(_Quotes, 0) ->
+  [];
+setdepth([], Depth) ->
+  [{0, 0} || _ <- lists:seq(1, Depth)];
+setdepth([Q|Quotes], Depth) ->
+  [Q|setdepth(Quotes, Depth - 1)].
+
+bidask_delta([[_|_] = Bid1, [_|_] = Ask1], [[_|_] = Bid2, [_|_] = Ask2]) ->
+  [bidask_delta(Bid1, Bid2), bidask_delta(Ask1, Ask2)];
+bidask_delta([{Price1, Volume1}|Tail1], [{Price2, Volume2}|Tail2]) ->
+  [{Price2 - Price1, Volume2 - Volume1}|bidask_delta(Tail1, Tail2)].
+
