@@ -5,10 +5,20 @@
 -author({"Danil Zagoskin", z@gosk.in}).
 
 -export([encode/1, decode/1]).
+-export([encode_signed/1, decode_signed/1]).
 -export([profile/0]).
 
--spec encode(integer()) -> binary().
-encode(Value) when is_integer(Value) ->
+
+-spec encode_signed(integer()) -> bitstring().
+encode_signed(Value) when is_integer(Value) andalso Value >= 0 ->
+  <<0:1, (encode(Value))/bitstring>>;
+
+encode_signed(Value) when is_integer(Value) andalso Value < 0 ->
+  <<1:1, (encode(Value))/bitstring>>.
+
+
+-spec encode(non_neg_integer()) -> binary().
+encode(Value) when is_integer(Value) andalso Value >= 0 ->
   encode_unsigned(Value).
 
 encode_unsigned(Value) ->
@@ -35,6 +45,15 @@ encode1(Value) when is_integer(Value) andalso Value >= 2097152 andalso Value < 2
 encode1(Value) when is_integer(Value) andalso Value >= 268435456 andalso Value < 34359738368 ->
   <<1:1, Value:7/integer, 1:1, (Value bsr 7):7/integer, 1:1, (Value bsr 14):7/integer, 1:1, (Value bsr 21):7/integer, 0:1, (Value bsr 28):7/integer>>.
 
+
+
+-spec decode_signed(bitstring()) -> integer().
+decode_signed(<<0:1, Value/bitstring>>) ->
+  decode(Value);
+
+decode_signed(<<1:1, Value/bitstring>>) ->
+  {Result, Tail} = decode(Value),
+  {-Result, Tail}.
 
 
 
