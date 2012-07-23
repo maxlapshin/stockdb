@@ -214,7 +214,7 @@ parse_header_line(HeaderLine, nonewline) ->
 
   {Key, Value}.
 
-
+% FIXME: number_of_chunks(300) = 289   -— WTF? Should be 288
 number_of_chunks(ChunkSize) ->
   timer:hours(24) div timer:?CHUNKUNITS(ChunkSize) + 1.
 
