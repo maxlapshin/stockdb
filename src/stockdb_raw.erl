@@ -21,6 +21,7 @@
 -record(dbstate, {
     version,
     file,
+    buffer,
     stock,
     date,
     depth,
@@ -136,7 +137,16 @@ update_db_options(OldOptions, _NewOptions) ->
 
 
 read(FileName) ->
-  {error, not_implemented}.
+  {ok, State0} = open(FileName, [read, binary]),
+  {ok, FileSize} = file:position(State0#dbstate.file, eof),
+  [{_, ROffset0}|_] = nonzero_chunks(State0),
+
+  Offset0 = State0#dbstate.chunk_map_offset + ROffset0,
+  {ok, Buffer} = file:pread(State0#dbstate.file, {bof, Offset0}, FileSize - Offset0),
+  close(State0),
+
+  {Events, _State1} = read_buffered_events(State0#dbstate{buffer = Buffer}),
+  {ok, Events}.
 
 close(#dbstate{file = File} = _State) ->
   file:close(File).
@@ -155,18 +165,57 @@ append({md, _Timestamp, _Bid, _Ask} = MD, #dbstate{} = State) ->
 write_header(File, StockDBOpts) ->
   ok = file:pwrite(File, bof, <<"#!/usr/bin/env stockdb\n">>),
   lists:foreach(fun({Key, Value}) ->
-        ok = file:write(File, [io_lib:print(Key), ": ", io_lib:print(Value), "\n"])
+        ok = file:write(File, [io_lib:print(Key), ": ", stockdb_format:format_header_value(Key, Value), "\n"])
     end, StockDBOpts),
   ok = file:write(File, "\n"),
   file:position(File, cur).
 
 read_header(File) ->
-  {error, not_implemented}.
+  Options = read_header_lines(File, []),
+  {ok, Offset} = file:position(File, cur),
+  {ok, Options, Offset}.
 
+read_header_lines(File, Acc) ->
+  {ok, HeaderLine} = file:read_line(File),
+  case parse_header_line(HeaderLine) of
+    {Key, Value} ->
+      read_header_lines(File, [{Key, Value}|Acc]);
+    ignore ->
+      read_header_lines(File, Acc);
+    stop ->
+      lists:reverse(Acc)
+  end.
+
+parse_header_line(HeaderLine) when is_binary(HeaderLine) ->
+  parse_header_line(erlang:binary_to_list(HeaderLine));
+
+parse_header_line("#" ++ _Comment) ->
+  ignore;
+
+parse_header_line("\n") ->
+  stop;
+
+parse_header_line(HeaderLine) when is_list(HeaderLine) ->
+  parse_header_line(string:strip(HeaderLine, right, $\n), nonewline).
+
+parse_header_line(HeaderLine, nonewline) ->
+  [KeyRaw, ValueRaw] = string:tokens(HeaderLine, ":"),
+
+  KeyStr = string:strip(KeyRaw, both),
+  ValueStr = string:strip(ValueRaw, both),
+
+  Key = erlang:list_to_atom(KeyStr),
+  Value = stockdb_format:parse_header_value(Key, ValueStr),
+
+  {Key, Value}.
+
+
+number_of_chunks(ChunkSize) ->
+  timer:hours(24) div timer:?CHUNKUNITS(ChunkSize) + 1.
 
 write_chunk_map(File, StockDBOpts) ->
   ChunkSize = proplists:get_value(chunk_size, StockDBOpts),
-  ChunkCount = erlang:round(timer:hours(24)/timer:?CHUNKUNITS(ChunkSize)) + 1,
+  ChunkCount = number_of_chunks(ChunkSize),
 
   ChunkMap = [<<0:?OFFSETLEN>> || _ <- lists:seq(1, ChunkCount)],
   Size = ?OFFSETLEN * ChunkCount,
@@ -174,9 +223,25 @@ write_chunk_map(File, StockDBOpts) ->
   ok = file:write(File, ChunkMap),
   {ok, Size}.
 
+
+nonzero_chunks(#dbstate{file = File, chunk_size = ChunkSize, chunk_map_offset = ChunkMapOffset}) ->
+  OffsetByteSize = ?OFFSETLEN div 8,
+  ChunkCount = number_of_chunks(ChunkSize),
+  ReversedResult = lists:foldl(fun(N, NZChunks) ->
+        case file:pread(File, {bof, ChunkMapOffset + OffsetByteSize*N}, OffsetByteSize) of
+          {ok, <<0:?OFFSETLEN>>} ->
+            NZChunks;
+          {ok, <<NonZero:?OFFSETLEN/integer>>} ->
+            [{N, NonZero}|NZChunks]
+        end
+    end, [], lists:seq(0, ChunkCount - 1)),
+  lists:reverse(ReversedResult).
+
+
 start_chunk(Timestamp, #dbstate{daystart = undefined, date = Date} = State) ->
   DaystartSeconds = calendar:datetime_to_gregorian_seconds({Date, {0,0,0}}) - calendar:datetime_to_gregorian_seconds({{1970,1,1}, {0,0,0}}),
   Daystart = DaystartSeconds * 1000,
+  ?D({daystart, Daystart}),
   start_chunk(Timestamp, State#dbstate{daystart = Daystart});
 
 start_chunk(Timestamp, State) ->
@@ -192,7 +257,8 @@ start_chunk(Timestamp, State) ->
   {ok, EOF} = file:position(File, eof),
   ChunkOffset = EOF - ChunkMapOffset,
 
-  ok = file:pwrite(File, {bof, ChunkMapOffset + ChunkNumber*?OFFSETLEN}, <<ChunkOffset:?OFFSETLEN>>),
+  ByteOffsetLen = ?OFFSETLEN div 8,
+  ok = file:pwrite(File, {bof, ChunkMapOffset + ChunkNumber*ByteOffsetLen}, <<ChunkOffset:?OFFSETLEN/integer>>),
 
   NextChunkTime = Daystart + ChunkSizeMs * (ChunkNumber + 1),
 
@@ -233,3 +299,41 @@ bidask_delta1(List1, List2) ->
     {Price2 - Price1, Volume2 - Volume1}
   end, List1, List2).
 
+bidask_delta_apply([[_|_] = Bid1, [_|_] = Ask1], [[_|_] = Bid2, [_|_] = Ask2]) ->
+  [bidask_delta_apply1(Bid1, Bid2), bidask_delta_apply1(Ask1, Ask2)].
+
+bidask_delta_apply1(List1, List2) ->
+  lists:zipwith(fun({Price, Volume}, {DPrice, DVolume}) ->
+    {Price + DPrice, Volume + DVolume}
+  end, List1, List2).
+
+
+read_buffered_events(State) ->
+  read_buffered_events(State, []).
+
+read_buffered_events(#dbstate{buffer = <<>>} = State, RevEvents) ->
+  {lists:reverse(RevEvents), State};
+read_buffered_events(#dbstate{} = State, RevEvents) ->
+  {Event, NewState} = read_packet_from_buffer(State),
+  read_buffered_events(NewState, [Event|RevEvents]).
+
+read_packet_from_buffer(#dbstate{buffer = Buffer} = State) ->
+  case stockdb_format:packet_type(Buffer) of
+    full_md ->
+      {Timestamp, BidAsk, Tail} = stockdb_format:decode_full_md(Buffer, State#dbstate.depth),
+      {Bid, Ask} = split_bidask(BidAsk, State#dbstate.depth),
+      Packet = {md, Timestamp, Bid, Ask},
+      {Packet, State#dbstate{last_timestamp = Timestamp, last_bidask = BidAsk, buffer = Tail}};
+    delta_md ->
+      {DTimestamp, DBidAsk, Tail} = stockdb_format:decode_delta_md(Buffer, State#dbstate.depth),
+      BidAsk = bidask_delta_apply(State#dbstate.last_bidask, DBidAsk),
+      Timestamp = State#dbstate.last_timestamp + DTimestamp,
+
+      {Bid, Ask} = split_bidask(BidAsk, State#dbstate.depth),
+      Packet = {md, Timestamp, Bid, Ask},
+      {Packet, State#dbstate{last_timestamp = Timestamp, last_bidask = BidAsk, buffer = Tail}}
+  end.
+
+
+split_bidask([Bid, Ask], _Depth) ->
+  {Bid, Ask}.

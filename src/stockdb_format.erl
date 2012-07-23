@@ -3,6 +3,8 @@
 -author({"Danil Zagoskin", z@gosk.in}).
 
 -export([encode_full_md/2, encode_delta_md/2]).
+-export([packet_type/1, decode_full_md/2, decode_delta_md/2]).
+-export([format_header_value/2, parse_header_value/2]).
 
 nested_foldl(Fun, Acc0, List) when is_list(List) ->
   lists:foldl(fun(E, Acc) -> nested_foldl(Fun, Acc, E) end, Acc0, List);
@@ -31,3 +33,65 @@ encode_delta_md(TimeDelta, BidAskDelta) ->
 
 encode_delta_value(0) -> <<0:1>>;
 encode_delta_value(V) -> <<1:1, (leb128:encode_signed(V))/bitstring>>.
+
+
+packet_type(<<1:1, _Tail/bitstring>>) -> full_md;
+packet_type(<<0:1, _Tail/bitstring>>) -> delta_md.
+
+
+decode_full_md(<<1:1, Timestamp:63/integer, BidAskTail/bitstring>>, Depth) ->
+  {Bid, AskTail} = decode_full_bidask(BidAskTail, Depth),
+  {Ask, Tail} = decode_full_bidask(AskTail, Depth),
+  {Timestamp, [Bid, Ask], Tail}.
+
+decode_full_bidask(Tail, 0) ->
+  {[], Tail};
+decode_full_bidask(<<Price:32/integer, Volume:32/integer, Tail/bitstring>>, Depth) ->
+  Line = {Price, Volume},
+  {TailLines, FinalTail} = decode_full_bidask(Tail, Depth - 1),
+  {[Line | TailLines], FinalTail}.
+
+
+decode_delta_md(<<0:1, TsBidAskTail/bitstring>>, Depth) ->
+  {Timestamp, BidAskTail} = leb128:decode(TsBidAskTail),
+  {Bid, AskTail} = decode_delta_bidask(BidAskTail, Depth),
+  {Ask, Tail} = decode_delta_bidask(AskTail, Depth),
+  ExtraBits = erlang:bit_size(Tail) rem 8,
+  <<0:ExtraBits/integer, AlignedTail/binary>> = Tail,
+
+  {Timestamp, [Bid, Ask], AlignedTail}.
+
+decode_delta_bidask(Tail, 0) ->
+  {[], Tail};
+decode_delta_bidask(PVTail, Depth) ->
+  {DPrice, VTail} = decode_delta_field(PVTail),
+  {DVolume, Tail} = decode_delta_field(VTail),
+  DLine = {DPrice, DVolume},
+  {TailDLines, FinalTail} = decode_delta_bidask(Tail, Depth - 1),
+  {[DLine | TailDLines], FinalTail}.
+
+decode_delta_field(<<0:1, Tail/bitstring>>) ->
+  {0, Tail};
+decode_delta_field(<<1:1, ValueTail/bitstring>>) ->
+  leb128:decode_signed(ValueTail).
+
+
+
+format_header_value(_, Value) ->
+  io_lib:print(Value).
+
+parse_header_value(depth, Value) ->
+  erlang:list_to_integer(Value);
+
+parse_header_value(scale, Value) ->
+  erlang:list_to_integer(Value);
+
+parse_header_value(chunk_size, Value) ->
+  erlang:list_to_integer(Value);
+
+parse_header_value(version, Value) ->
+  erlang:list_to_integer(Value);
+
+parse_header_value(_, Value) ->
+  Value.
+
