@@ -152,13 +152,18 @@ close(#dbstate{file = File} = _State) ->
   file:close(File).
 
 
-append({md, Timestamp, _Bid, _Ask} = MD, #dbstate{last_bidask = undefined} = State) ->
+append({md, Timestamp, Bid, Ask}, #dbstate{scale = Scale} = State) ->
+  SBid = apply_scale(Bid, Scale),
+  SAsk = apply_scale(Ask, Scale),
+  append({scaled, {md, Timestamp, SBid, SAsk}}, State);
+
+append({scaled, {md, Timestamp, _Bid, _Ask} = MD}, #dbstate{last_bidask = undefined} = State) ->
   append_full_md(MD, start_chunk(Timestamp, State));
 
-append({md, Timestamp, _Bid, _Ask} = MD, #dbstate{next_chunk_time = NCT} = State) when Timestamp >= NCT ->
+append({scaled, {md, Timestamp, _Bid, _Ask} = MD}, #dbstate{next_chunk_time = NCT} = State) when Timestamp >= NCT ->
   append_full_md(MD, start_chunk(Timestamp, State));
 
-append({md, _Timestamp, _Bid, _Ask} = MD, #dbstate{} = State) ->
+append({scaled, {md, _Timestamp, _Bid, _Ask} = MD}, #dbstate{} = State) ->
   append_delta_md(MD, State).
 
 
@@ -321,19 +326,34 @@ read_packet_from_buffer(#dbstate{buffer = Buffer} = State) ->
   case stockdb_format:packet_type(Buffer) of
     full_md ->
       {Timestamp, BidAsk, Tail} = stockdb_format:decode_full_md(Buffer, State#dbstate.depth),
-      {Bid, Ask} = split_bidask(BidAsk, State#dbstate.depth),
-      Packet = {md, Timestamp, Bid, Ask},
-      {Packet, State#dbstate{last_timestamp = Timestamp, last_bidask = BidAsk, buffer = Tail}};
+
+      {packet_from_mdentry(Timestamp, BidAsk, State),
+        State#dbstate{last_timestamp = Timestamp, last_bidask = BidAsk, buffer = Tail}};
     delta_md ->
       {DTimestamp, DBidAsk, Tail} = stockdb_format:decode_delta_md(Buffer, State#dbstate.depth),
       BidAsk = bidask_delta_apply(State#dbstate.last_bidask, DBidAsk),
       Timestamp = State#dbstate.last_timestamp + DTimestamp,
 
-      {Bid, Ask} = split_bidask(BidAsk, State#dbstate.depth),
-      Packet = {md, Timestamp, Bid, Ask},
-      {Packet, State#dbstate{last_timestamp = Timestamp, last_bidask = BidAsk, buffer = Tail}}
+      {packet_from_mdentry(Timestamp, BidAsk, State),
+        State#dbstate{last_timestamp = Timestamp, last_bidask = BidAsk, buffer = Tail}}
   end.
 
 
 split_bidask([Bid, Ask], _Depth) ->
   {Bid, Ask}.
+
+packet_from_mdentry(Timestamp, BidAsk, #dbstate{depth = Depth, scale = Scale}) ->
+  {Bid, Ask} = split_bidask(BidAsk, Depth),
+  SBid = apply_scale(Bid, 1/Scale),
+  SAsk = apply_scale(Ask, 1/Scale),
+  {md, Timestamp, SBid, SAsk}.
+
+apply_scale(PVList, Scale) when is_integer(Scale) ->
+  lists:map(fun({Price, Volume}) ->
+        {erlang:round(Price * Scale), Volume}
+    end, PVList);
+
+apply_scale(PVList, Scale) when is_float(Scale) ->
+  lists:map(fun({Price, Volume}) ->
+        {Price * Scale, Volume}
+    end, PVList).
