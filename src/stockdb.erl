@@ -22,12 +22,13 @@ open(Path, Modes) ->
 
 append(Ref, Object) ->
   State = ets:lookup_element(stockdb_instances, Ref, 3),
-  {ok, NewState} = stockdb_raw:append(State, Object),
+  {ok, NewState} = stockdb_raw:append(Object, State),
   true = ets:update_element(stockdb_instances, Ref, {3, NewState}),
   ok.
 
 close(Ref) ->
   State = ets:lookup_element(stockdb_instances, Ref, 3),
+  ets:delete(stockdb_instances, Ref),
   ok = stockdb_raw:close(State).
 
 table_exists() ->

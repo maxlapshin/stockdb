@@ -237,9 +237,9 @@ write_chunk_map(File, StockDBOpts) ->
   {ok, Size}.
 
 read_chunk_map(#dbstate{} = State) ->
-  ChunkMap = lists:map(fun({_Number, Offset}) ->
+  ChunkMap = lists:map(fun({Number, Offset}) ->
         {md, Timestamp, _Bid, _Ask} = read_full_md_at_offset(Offset, State),
-        {Timestamp, Offset}
+        {Number, Timestamp, Offset}
     end, nonzero_chunks(State)),
   State#dbstate{chunk_map = ChunkMap}.
 
@@ -262,6 +262,12 @@ daystart(Date) ->
   DaystartSeconds = calendar:datetime_to_gregorian_seconds({Date, {0,0,0}}) - calendar:datetime_to_gregorian_seconds({{1970,1,1}, {0,0,0}}),
   DaystartSeconds * 1000.
 
+utc_to_daystart(UTC) ->
+  DayLength = timer:hours(24),
+  DayTail = UTC rem DayLength,
+  UTC - DayTail.
+
+
 start_chunk(Timestamp, #dbstate{daystart = undefined, date = Date} = State) ->
   start_chunk(Timestamp, State#dbstate{daystart = daystart(Date)});
 
@@ -270,10 +276,14 @@ start_chunk(Timestamp, State) ->
     daystart = Daystart,
     chunk_size = ChunkSize,
     chunk_map_offset = ChunkMapOffset,
+    chunk_map = ChunkMap,
     file = File} = State,
 
   ChunkSizeMs = timer:?CHUNKUNITS(ChunkSize),
   ChunkNumber = (Timestamp - Daystart) div ChunkSizeMs,
+
+  % sanity check
+  (Timestamp - Daystart) < timer:hours(24) orelse erlang:error({not_this_day, Timestamp}),
 
   {ok, EOF} = file:position(File, eof),
   ChunkOffset = EOF - ChunkMapOffset,
@@ -283,7 +293,11 @@ start_chunk(Timestamp, State) ->
 
   NextChunkTime = Daystart + ChunkSizeMs * (ChunkNumber + 1),
 
-  State#dbstate{next_chunk_time = NextChunkTime}.
+  Chunk = {ChunkNumber, Timestamp, ChunkOffset},
+  ?D({new_chunk, Chunk}),
+  State#dbstate{
+    chunk_map = ChunkMap ++ [Chunk],
+    next_chunk_time = NextChunkTime}.
   
 
 append_full_md({md, Timestamp, Bid, Ask}, #dbstate{depth = Depth, file = File} = State) ->
@@ -329,15 +343,20 @@ bidask_delta_apply1(List1, List2) ->
   end, List1, List2).
 
 
-fast_forward(#dbstate{file = File, chunk_map_offset = ChunkMapOffset, chunk_map = ChunkMap} = State) ->
-  {_Timestamp, LastChunkOffset} = lists:last(ChunkMap),
+fast_forward(#dbstate{file = File, chunk_size = ChunkSize, chunk_map_offset = ChunkMapOffset, chunk_map = ChunkMap} = State) ->
+  {N, LastChunkTimestamp, LastChunkOffset} = lists:last(ChunkMap),
   AbsOffset = ChunkMapOffset + LastChunkOffset,
   {ok, FileSize} = file:position(File, eof),
 
   {ok, Buffer} = file:pread(File, {bof, AbsOffset}, FileSize - AbsOffset),
   {_Packets, LastState} = read_buffered_events(State#dbstate{buffer = Buffer}),
 
-  LastState.
+  Daystart = utc_to_daystart(LastChunkTimestamp),
+  ChunkSizeMs = timer:?CHUNKUNITS(ChunkSize),
+
+  LastState#dbstate{
+    daystart = Daystart,
+    next_chunk_time = Daystart + ChunkSizeMs * (N + 1)}.
 
 
 read_full_md_at_offset(Offset, #dbstate{file = File, chunk_map_offset = ChunkMapOffset, depth = Depth} = State) ->
