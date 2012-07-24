@@ -5,7 +5,7 @@
 
 -include("log.hrl").
 
--export([open/2, read/1, append/2, close/1]).
+-export([open/2, read/1, file_info/2, append/2, close/1]).
 
 -define(STOCKDB_OPTIONS, [
     {version, 1},
@@ -134,7 +134,7 @@ open_existing_db(FileName, FileOpts, GivenStockDBOpts) ->
 
   StateReady = fast_forward(StateChunkRead),
 
-  ?D({last_packet, StateReady#dbstate.last_timestamp}),
+  % ?D({last_packet, StateReady#dbstate.last_timestamp}),
   {ok, StateReady}.
 
 
@@ -155,23 +155,37 @@ read(FileName) ->
   {Events, _State1} = read_buffered_events(State0#dbstate{buffer = Buffer}),
   {ok, Events}.
 
+
+file_info(FileName, Fields) ->
+  {ok, File} = file:open(FileName, [read, binary]),
+  {ok, 0} = file:position(File, bof),
+
+  {ok, SavedDBOpts, _ChunkMapOffset} = read_header(File),
+  file:close(File),
+  lists:map(fun(Field) ->
+        proplists:get_value(Field, SavedDBOpts)
+    end, Fields).
+
+
 close(#dbstate{file = File} = _State) ->
   file:close(File).
 
 
-append({md, Timestamp, Bid, Ask}, #dbstate{scale = Scale} = State) ->
-  SBid = apply_scale(Bid, Scale),
-  SAsk = apply_scale(Ask, Scale),
-  append({scaled, {md, Timestamp, SBid, SAsk}}, State);
+append({trade, Timestamp, _Price, _Volume} = Trade, #dbstate{next_chunk_time = NCT} = State) when Timestamp >= NCT ->
+  append(Trade, start_chunk(Timestamp, State));
 
-append({scaled, {md, Timestamp, _Bid, _Ask} = MD}, #dbstate{last_bidask = undefined} = State) ->
-  append_full_md(MD, start_chunk(Timestamp, State));
+append({trade, Timestamp, Price, Volume}, #dbstate{scale = Scale} = State) ->
+  StorePrice = erlang:round(Price * Scale),
+  append_trade({trade, Timestamp, StorePrice, Volume}, State);
 
-append({scaled, {md, Timestamp, _Bid, _Ask} = MD}, #dbstate{next_chunk_time = NCT} = State) when Timestamp >= NCT ->
-  append_full_md(MD, start_chunk(Timestamp, State));
+append({md, Timestamp, _Bid, _Ask} = MD, #dbstate{last_bidask = undefined, scale = Scale} = State) ->
+  append_full_md(scale_md(MD, Scale), start_chunk(Timestamp, State));
 
-append({scaled, {md, _Timestamp, _Bid, _Ask} = MD}, #dbstate{} = State) ->
-  append_delta_md(MD, State).
+append({md, Timestamp, _Bid, _Ask} = MD, #dbstate{next_chunk_time = NCT, scale = Scale} = State) when Timestamp >= NCT ->
+  append_full_md(scale_md(MD, Scale), start_chunk(Timestamp, State));
+
+append({md, _Timestamp, _Bid, _Ask} = MD, #dbstate{scale = Scale} = State) ->
+  append_delta_md(scale_md(MD, Scale), State).
 
 
 write_header(File, StockDBOpts) ->
@@ -318,6 +332,12 @@ append_delta_md({md, Timestamp, Bid, Ask}, #dbstate{depth = Depth, file = File, 
       last_bidask = BidAsk}
   }.
 
+append_trade({trade, Timestamp, Price, Volume}, #dbstate{file = File} = State) ->
+  Data = stockdb_format:encode_trade(Timestamp, Price, Volume),
+  ok = file:pwrite(File, eof, Data),
+  {ok, State#dbstate{last_timestamp = Timestamp}}.
+
+
 setdepth(_Quotes, 0) ->
   [];
 setdepth([], Depth) ->
@@ -390,7 +410,11 @@ read_packet_from_buffer(#dbstate{buffer = Buffer} = State) ->
       Timestamp = State#dbstate.last_timestamp + DTimestamp,
 
       {packet_from_mdentry(Timestamp, BidAsk, State),
-        State#dbstate{last_timestamp = Timestamp, last_bidask = BidAsk, buffer = Tail}}
+        State#dbstate{last_timestamp = Timestamp, last_bidask = BidAsk, buffer = Tail}};
+    trade ->
+      {Timestamp, Price, Volume, Tail} = stockdb_format:decode_trade(Buffer),
+      {{trade, Timestamp, Price/State#dbstate.scale, Volume},
+        State#dbstate{last_timestamp = Timestamp, buffer = Tail}}
   end.
 
 
@@ -412,3 +436,9 @@ apply_scale(PVList, Scale) when is_float(Scale) ->
   lists:map(fun({Price, Volume}) ->
         {Price * Scale, Volume}
     end, PVList).
+
+
+scale_md({md, Timestamp, Bid, Ask}, Scale) ->
+  SBid = apply_scale(Bid, Scale),
+  SAsk = apply_scale(Ask, Scale),
+  {md, Timestamp, SBid, SAsk}.

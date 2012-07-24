@@ -3,6 +3,7 @@
 -author({"Danil Zagoskin", z@gosk.in}).
 
 -export([encode_full_md/2, encode_delta_md/2]).
+-export([encode_trade/3, decode_trade/1]).
 -export([packet_type/1, decode_full_md/2, decode_delta_md/2]).
 -export([format_header_value/2, parse_header_value/2]).
 
@@ -15,7 +16,7 @@ nested_foldl(Fun, Acc, Element) ->
 encode_full_md(Timestamp, BidAsk) ->
   nested_foldl(fun({Price, Volume}, Acc) ->
         <<Acc/binary, Price:32/integer, Volume:32/integer>>
-    end, <<1:1, Timestamp:63/integer>>, BidAsk).
+    end, <<1:1, 0:1, Timestamp:62/integer>>, BidAsk).
 
 encode_delta_md(TimeDelta, BidAskDelta) ->
   ETimeDelta = leb128:encode(TimeDelta),
@@ -31,11 +32,15 @@ encode_delta_md(TimeDelta, BidAskDelta) ->
 
   <<Unpadded/bitstring, 0:MissingBits/integer>>.
 
+encode_trade(Timestamp, Price, Volume) ->
+  <<1:1, 1:1, Timestamp:62/integer, Price:32/integer, Volume:32/integer>>.
+
 encode_delta_value(0) -> <<0:1>>;
 encode_delta_value(V) -> <<1:1, (leb128:encode_signed(V))/bitstring>>.
 
 
-packet_type(<<1:1, _Tail/bitstring>>) -> full_md;
+packet_type(<<1:1, 0:1, _Tail/bitstring>>) -> full_md;
+packet_type(<<1:1, 1:1, _Tail/bitstring>>) -> trade;
 packet_type(<<0:1, _Tail/bitstring>>) -> delta_md.
 
 
@@ -76,12 +81,19 @@ decode_delta_field(<<1:1, ValueTail/bitstring>>) ->
   leb128:decode_signed(ValueTail).
 
 
+decode_trade(<<1:1, 1:1, Timestamp:62/integer, Price:32/integer, Volume:32/integer, Tail/bitstring>>) ->
+  {Timestamp, Price, Volume, Tail}.
+
 
 format_header_value(date, {Y, M, D}) ->
   io_lib:format("~4..0B/~2..0B/~2..0B", [Y, M, D]);
 
+format_header_value(stock, Stock) ->
+  erlang:atom_to_list(Stock);
+
 format_header_value(_, Value) ->
   io_lib:print(Value).
+
 
 parse_header_value(depth, Value) ->
   erlang:list_to_integer(Value);
@@ -99,7 +111,10 @@ parse_header_value(date, DateStr) ->
   [YS, MS, DS] = string:tokens(DateStr, "/"),
   { erlang:list_to_integer(YS),
     erlang:list_to_integer(MS),
-    erlang:list_to_integer(DS)}.
+    erlang:list_to_integer(DS)};
+
+parse_header_value(stock, StockStr) ->
+  erlang:list_to_atom(StockStr);
 
 parse_header_value(_, Value) ->
   Value.
