@@ -3,6 +3,6 @@
   {vsn, "0.1"},
   {registered, []},
   {applications, [kernel, stdlib]},
-  {mod, {undefined, []}}
+  {mod, {stockdb_app, []}}
 ]}.
 
