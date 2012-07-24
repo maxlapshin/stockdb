@@ -131,7 +131,6 @@ open_existing_db(FileName, FileOpts, GivenStockDBOpts) ->
     chunk_map_offset = ChunkMapOffset},
 
   StateChunkRead = read_chunk_map(StateFileOpen),
-  ?D({last_chunk, lists:last(StateChunkRead#dbstate.chunk_map)}),
 
   StateReady = fast_forward(StateChunkRead),
 
@@ -343,6 +342,8 @@ bidask_delta_apply1(List1, List2) ->
   end, List1, List2).
 
 
+fast_forward(#dbstate{chunk_map = []} = State) ->
+  State;
 fast_forward(#dbstate{file = File, chunk_size = ChunkSize, chunk_map_offset = ChunkMapOffset, chunk_map = ChunkMap} = State) ->
   {N, LastChunkTimestamp, LastChunkOffset} = lists:last(ChunkMap),
   AbsOffset = ChunkMapOffset + LastChunkOffset,

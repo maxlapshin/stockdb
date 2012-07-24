@@ -77,6 +77,9 @@ decode_delta_field(<<1:1, ValueTail/bitstring>>) ->
 
 
 
+format_header_value(date, {Y, M, D}) ->
+  io_lib:format("~4..0B/~2..0B/~2..0B", [Y, M, D]);
+
 format_header_value(_, Value) ->
   io_lib:print(Value).
 
@@ -91,6 +94,12 @@ parse_header_value(chunk_size, Value) ->
 
 parse_header_value(version, Value) ->
   erlang:list_to_integer(Value);
+
+parse_header_value(date, DateStr) ->
+  [YS, MS, DS] = string:tokens(DateStr, "/"),
+  { erlang:list_to_integer(YS),
+    erlang:list_to_integer(MS),
+    erlang:list_to_integer(DS)}.
 
 parse_header_value(_, Value) ->
   Value.
