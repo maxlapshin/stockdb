@@ -31,6 +31,7 @@
     last_bidask,
     next_chunk_time = 0,
     chunk_map_offset,
+    chunk_map = [],
     daystart
   }).
 
@@ -125,10 +126,17 @@ open_existing_db(FileName, FileOpts, GivenStockDBOpts) ->
   StockDBOpts = update_db_options(SavedDBOpts, GivenStockDBOpts),
   State0 = parse_opts(StockDBOpts, #dbstate{}),
 
-  {ok, State0#dbstate{
-      file = File,
-      chunk_map_offset = ChunkMapOffset
-    }}.
+  StateFileOpen = State0#dbstate{
+    file = File,
+    chunk_map_offset = ChunkMapOffset},
+
+  StateChunkRead = read_chunk_map(StateFileOpen),
+  ?D({last_chunk, lists:last(StateChunkRead#dbstate.chunk_map)}),
+
+  StateReady = fast_forward(StateChunkRead),
+
+  ?D({last_packet, StateReady#dbstate.last_timestamp}),
+  {ok, StateReady}.
 
 
 update_db_options(OldOptions, _NewOptions) ->
@@ -228,6 +236,13 @@ write_chunk_map(File, StockDBOpts) ->
   ok = file:write(File, ChunkMap),
   {ok, Size}.
 
+read_chunk_map(#dbstate{} = State) ->
+  ChunkMap = lists:map(fun({_Number, Offset}) ->
+        {md, Timestamp, _Bid, _Ask} = read_full_md_at_offset(Offset, State),
+        {Timestamp, Offset}
+    end, nonzero_chunks(State)),
+  State#dbstate{chunk_map = ChunkMap}.
+
 
 nonzero_chunks(#dbstate{file = File, chunk_size = ChunkSize, chunk_map_offset = ChunkMapOffset}) ->
   OffsetByteSize = ?OFFSETLEN div 8,
@@ -243,11 +258,12 @@ nonzero_chunks(#dbstate{file = File, chunk_size = ChunkSize, chunk_map_offset = 
   lists:reverse(ReversedResult).
 
 
-start_chunk(Timestamp, #dbstate{daystart = undefined, date = Date} = State) ->
+daystart(Date) ->
   DaystartSeconds = calendar:datetime_to_gregorian_seconds({Date, {0,0,0}}) - calendar:datetime_to_gregorian_seconds({{1970,1,1}, {0,0,0}}),
-  Daystart = DaystartSeconds * 1000,
-  ?D({daystart, Daystart}),
-  start_chunk(Timestamp, State#dbstate{daystart = Daystart});
+  DaystartSeconds * 1000.
+
+start_chunk(Timestamp, #dbstate{daystart = undefined, date = Date} = State) ->
+  start_chunk(Timestamp, State#dbstate{daystart = daystart(Date)});
 
 start_chunk(Timestamp, State) ->
   #dbstate{
@@ -311,6 +327,25 @@ bidask_delta_apply1(List1, List2) ->
   lists:zipwith(fun({Price, Volume}, {DPrice, DVolume}) ->
     {Price + DPrice, Volume + DVolume}
   end, List1, List2).
+
+
+fast_forward(#dbstate{file = File, chunk_map_offset = ChunkMapOffset, chunk_map = ChunkMap} = State) ->
+  {_Timestamp, LastChunkOffset} = lists:last(ChunkMap),
+  AbsOffset = ChunkMapOffset + LastChunkOffset,
+  {ok, FileSize} = file:position(File, eof),
+
+  {ok, Buffer} = file:pread(File, {bof, AbsOffset}, FileSize - AbsOffset),
+  {_Packets, LastState} = read_buffered_events(State#dbstate{buffer = Buffer}),
+
+  LastState.
+
+
+read_full_md_at_offset(Offset, #dbstate{file = File, chunk_map_offset = ChunkMapOffset, depth = Depth} = State) ->
+  PacketLen = 8 + 2 * 2 * 4 * Depth, % Timestamp 64 bit + (bid, ask) * (price, volume) * 32 bit * depth
+  {ok, Buffer} = file:pread(File, {bof, ChunkMapOffset + Offset}, PacketLen),
+
+  {Timestamp, BidAsk, _Tail} = stockdb_format:decode_full_md(Buffer, State#dbstate.depth),
+  packet_from_mdentry(Timestamp, BidAsk, State).
 
 
 read_buffered_events(State) ->
