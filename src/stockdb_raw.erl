@@ -4,6 +4,7 @@
 -author({"Danil Zagoskin", z@gosk.in}).
 
 -include("log.hrl").
+-include_lib("eunit/include/eunit.hrl").
 
 -export([open/2, read/1, file_info/2, append/2, close/1]).
 
@@ -237,7 +238,6 @@ parse_header_line(HeaderLine, nonewline) ->
 
   {Key, Value}.
 
-% FIXME: number_of_chunks(300) = 289   -— WTF? Should be 288
 number_of_chunks(ChunkSize) ->
   timer:hours(24) div timer:?CHUNKUNITS(ChunkSize) + 1.
 
@@ -384,7 +384,7 @@ fast_forward(#dbstate{file = File, chunk_size = ChunkSize, chunk_map_offset = Ch
     next_chunk_time = Daystart + ChunkSizeMs * (N + 1)}.
 
 
-read_timestamp_at_offset(Offset, #dbstate{file = File, chunk_map_offset = ChunkMapOffset, depth = Depth} = State) ->
+read_timestamp_at_offset(Offset, #dbstate{file = File, chunk_map_offset = ChunkMapOffset}) ->
   {ok, Buffer} = file:pread(File, {bof, ChunkMapOffset + Offset}, 8),
   stockdb_format:decode_timestamp(Buffer).
 

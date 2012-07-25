@@ -44,4 +44,7 @@ autocreate_table() ->
   end.
 
 test() ->
-  leb128:test().
+  leb128:test(),
+  stockdb_format:test(),
+  stockdb_raw:test().
+  
