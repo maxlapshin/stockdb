@@ -4,6 +4,7 @@
 
 -export([encode_full_md/2, encode_delta_md/2]).
 -export([encode_trade/3, decode_trade/1]).
+-export([decode_timestamp/1]).
 -export([packet_type/1, decode_full_md/2, decode_delta_md/2]).
 -export([format_header_value/2, parse_header_value/2]).
 
@@ -42,6 +43,9 @@ encode_delta_value(V) -> <<1:1, (leb128:encode_signed(V))/bitstring>>.
 packet_type(<<1:1, 0:1, _Tail/bitstring>>) -> full_md;
 packet_type(<<1:1, 1:1, _Tail/bitstring>>) -> trade;
 packet_type(<<0:1, _Tail/bitstring>>) -> delta_md.
+
+decode_timestamp(<<1:1, _:1/integer, Timestamp:62/integer, _Tail/bitstring>>) ->
+  Timestamp.
 
 
 decode_full_md(<<1:1, Timestamp:63/integer, BidAskTail/bitstring>>, Depth) ->
@@ -83,7 +87,6 @@ decode_delta_field(<<1:1, ValueTail/bitstring>>) ->
 
 decode_trade(<<1:1, 1:1, Timestamp:62/integer, Price:32/integer, Volume:32/integer, Tail/bitstring>>) ->
   {Timestamp, Price, Volume, Tail}.
-
 
 format_header_value(date, {Y, M, D}) ->
   io_lib:format("~4..0B/~2..0B/~2..0B", [Y, M, D]);

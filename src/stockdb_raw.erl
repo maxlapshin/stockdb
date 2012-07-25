@@ -32,7 +32,8 @@
     next_chunk_time = 0,
     chunk_map_offset,
     chunk_map = [],
-    daystart
+    daystart,
+    next_md_full = true
   }).
 
 -define(PARSEOPT(OptName),
@@ -171,18 +172,19 @@ close(#dbstate{file = File} = _State) ->
   file:close(File).
 
 
-append({trade, Timestamp, _Price, _Volume} = Trade, #dbstate{next_chunk_time = NCT} = State) when Timestamp >= NCT ->
+append({trade, Timestamp, _ ,_} = Trade, #dbstate{next_chunk_time = NCT} = State) when Timestamp >= NCT ->
   append(Trade, start_chunk(Timestamp, State));
+
+append({md, Timestamp, _, _} = MD, #dbstate{next_chunk_time = NCT} = State) when Timestamp >= NCT ->
+  append(MD, start_chunk(Timestamp, State));
+
 
 append({trade, Timestamp, Price, Volume}, #dbstate{scale = Scale} = State) ->
   StorePrice = erlang:round(Price * Scale),
   append_trade({trade, Timestamp, StorePrice, Volume}, State);
 
-append({md, Timestamp, _Bid, _Ask} = MD, #dbstate{last_bidask = undefined, scale = Scale} = State) ->
-  append_full_md(scale_md(MD, Scale), start_chunk(Timestamp, State));
-
-append({md, Timestamp, _Bid, _Ask} = MD, #dbstate{next_chunk_time = NCT, scale = Scale} = State) when Timestamp >= NCT ->
-  append_full_md(scale_md(MD, Scale), start_chunk(Timestamp, State));
+append({md, _Timestamp, _Bid, _Ask} = MD, #dbstate{scale = Scale, next_md_full = true} = State) ->
+  append_full_md(scale_md(MD, Scale), State);
 
 append({md, _Timestamp, _Bid, _Ask} = MD, #dbstate{scale = Scale} = State) ->
   append_delta_md(scale_md(MD, Scale), State).
@@ -251,7 +253,7 @@ write_chunk_map(File, StockDBOpts) ->
 
 read_chunk_map(#dbstate{} = State) ->
   ChunkMap = lists:map(fun({Number, Offset}) ->
-        {md, Timestamp, _Bid, _Ask} = read_full_md_at_offset(Offset, State),
+        Timestamp = read_timestamp_at_offset(Offset, State),
         {Number, Timestamp, Offset}
     end, nonzero_chunks(State)),
   State#dbstate{chunk_map = ChunkMap}.
@@ -307,10 +309,11 @@ start_chunk(Timestamp, State) ->
   NextChunkTime = Daystart + ChunkSizeMs * (ChunkNumber + 1),
 
   Chunk = {ChunkNumber, Timestamp, ChunkOffset},
-  ?D({new_chunk, Chunk}),
+  % ?D({new_chunk, Chunk}),
   State#dbstate{
     chunk_map = ChunkMap ++ [Chunk],
-    next_chunk_time = NextChunkTime}.
+    next_chunk_time = NextChunkTime,
+    next_md_full = true}.
   
 
 append_full_md({md, Timestamp, Bid, Ask}, #dbstate{depth = Depth, file = File} = State) ->
@@ -319,7 +322,8 @@ append_full_md({md, Timestamp, Bid, Ask}, #dbstate{depth = Depth, file = File} =
   ok = file:pwrite(File, eof, Data),
   {ok, State#dbstate{
       last_timestamp = Timestamp,
-      last_bidask = BidAsk}
+      last_bidask = BidAsk,
+      next_md_full = false}
   }.
 
 append_delta_md({md, Timestamp, Bid, Ask}, #dbstate{depth = Depth, file = File, last_timestamp = LastTS, last_bidask = LastBA} = State) ->
@@ -380,12 +384,9 @@ fast_forward(#dbstate{file = File, chunk_size = ChunkSize, chunk_map_offset = Ch
     next_chunk_time = Daystart + ChunkSizeMs * (N + 1)}.
 
 
-read_full_md_at_offset(Offset, #dbstate{file = File, chunk_map_offset = ChunkMapOffset, depth = Depth} = State) ->
-  PacketLen = 8 + 2 * 2 * 4 * Depth, % Timestamp 64 bit + (bid, ask) * (price, volume) * 32 bit * depth
-  {ok, Buffer} = file:pread(File, {bof, ChunkMapOffset + Offset}, PacketLen),
-
-  {Timestamp, BidAsk, _Tail} = stockdb_format:decode_full_md(Buffer, State#dbstate.depth),
-  packet_from_mdentry(Timestamp, BidAsk, State).
+read_timestamp_at_offset(Offset, #dbstate{file = File, chunk_map_offset = ChunkMapOffset, depth = Depth} = State) ->
+  {ok, Buffer} = file:pread(File, {bof, ChunkMapOffset + Offset}, 8),
+  stockdb_format:decode_timestamp(Buffer).
 
 
 read_buffered_events(State) ->
