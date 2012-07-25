@@ -10,24 +10,22 @@
 
 
 -spec encode_signed(integer()) -> bitstring().
-encode_signed(Value) when is_integer(Value) andalso Value >= 0 ->
-  <<0:1, (encode(Value))/bitstring>>;
-
-encode_signed(Value) when is_integer(Value) andalso Value < 0 ->
-  <<1:1, (encode(-Value))/bitstring>>.
-
+encode_signed(Value) when is_integer(Value)  ->
+  encode_ranged(Value, 0, 16#40).
 
 -spec encode(non_neg_integer()) -> binary().
 encode(Value) when is_integer(Value) andalso Value >= 0 ->
-  encode_unsigned(Value).
+  encode_ranged(Value, 0, 16#80).
 
-encode_unsigned(Value) ->
-  case Value bsr 7 of
-    0 ->
-      <<0:1, Value:7/integer>>;
-    NextValue ->
-      <<1:1, Value:7/integer, (encode_unsigned(NextValue))/binary>>
-  end.
+
+encode_ranged(Value, Shift, Range) when -Range =< Value andalso Value < Range ->
+  Chunk = Value bsr Shift,
+  <<0:1, Chunk:7/integer>>;
+
+encode_ranged(Value, Shift, Range) ->
+  Chunk = Value bsr Shift,
+  Tail = encode_ranged(Value, Shift+7, Range bsl 7),
+  <<1:1, Chunk:7/integer, Tail/binary>>.
 
 
 encode1(Value) when is_integer(Value) andalso Value >= 0 andalso Value < 128 ->
@@ -46,45 +44,30 @@ encode1(Value) when is_integer(Value) andalso Value >= 268435456 andalso Value <
   <<1:1, Value:7/integer, 1:1, (Value bsr 7):7/integer, 1:1, (Value bsr 14):7/integer, 1:1, (Value bsr 21):7/integer, 0:1, (Value bsr 28):7/integer>>.
 
 
-
--spec decode_signed(bitstring()) -> integer().
-decode_signed(<<0:1, Value/bitstring>>) ->
-  decode(Value);
-
-decode_signed(<<1:1, Value/bitstring>>) ->
-  {Result, Tail} = decode(Value),
-  {-Result, Tail}.
-
-
-
 -spec decode(binary()) -> {integer(), binary()}.
 decode(Bin) when is_bitstring(Bin) ->
-  decode_chunks(Bin, []).
+  decode(Bin, unsigned).
 
-decode_chunks(<<0:1, Chunk:7/integer, Tail/bitstring>>, Acc) ->
-  Result = lists:foldl(fun(V, Sum) ->
-    (Sum bsl 7) bor V
-  end, 0, [Chunk|Acc]),
-  {Result, Tail};
-  
-decode_chunks(<<1:1, Chunk:7/integer, Tail/bitstring>>, Acc) ->
-  decode_chunks(Tail, [Chunk|Acc]).
+-spec decode_signed(bitstring()) -> integer().
+decode_signed(Bin) ->
+  decode(Bin, signed).
 
+decode(Bin, signed) ->
+  {Size, UValue, Tail} = take_chunks(Bin, 0, 0),
+  <<Value:Size/signed-integer>> = <<UValue:Size/unsigned-integer>>,
+  {Value, Tail};
 
-decode1(<<0:1, V0:7, Tail/bitstring>>) ->
-  {V0, Tail};
+decode(Bin, unsigned) ->
+  {_Size, Value, Tail} = take_chunks(Bin, 0, 0),
+  {Value, Tail}.
 
-decode1(<<1:1, V0:7, 0:1, V1:7, Tail/bitstring>>) ->
-  {(V1 bsl 7) bor V0, Tail};
+take_chunks(<<0:1, Chunk:7/integer, Tail/bitstring>>, Acc, Shift) ->
+  Result = (Chunk bsl Shift) bor Acc,
+  {Shift+7, Result, Tail};
 
-decode1(<<1:1, V0:7, 1:1, V1:7, 0:1, V2:7, Tail/bitstring>>) ->
-  {(V2 bsl 14) bor (V1 bsl 7) bor V0, Tail};
-
-decode1(<<1:1, V0:7, 1:1, V1:7, 1:1, V2:7, 0:1, V3:7, Tail/bitstring>>) ->
-  {(V3 bsl 21) bor (V2 bsl 14) bor (V1 bsl 7) bor V0, Tail};
-
-decode1(<<1:1, V0:7, 1:1, V1:7, 1:1, V2:7, 1:1, V3:7, 0:1, V4:7, Tail/bitstring>>) ->
-  {(V4 bsl 21) bor (V3 bsl 21) bor (V2 bsl 14) bor (V1 bsl 7) bor V0, Tail}.
+take_chunks(<<1:1, Chunk:7/integer, Tail/bitstring>>, Acc, Shift) ->
+  NextAcc = (Chunk bsl Shift) bor Acc,
+  take_chunks(Tail, NextAcc, Shift+7).
 
 
 % EUnit tests
@@ -100,8 +83,11 @@ encode1_test() ->
 decode_test() ->
   ?assertEqual({624485,<<57,113,1:4>>}, decode(<<16#E5, 16#8E, 16#26, 57,113,1:4>>)).
 
-decode1_test() ->
-  ?assertEqual({624485,<<57,113,1:4>>}, decode1(<<16#E5, 16#8E, 16#26, 57,113,1:4>>)).
+encode_signed_test() ->
+  ?assertEqual(<<16#9B, 16#F1, 16#59>>, encode_signed(-624485)).
+
+decode_signed_test() ->
+  ?assertEqual({-624485,<<57,113,1:4>>}, decode_signed(<<16#9B, 16#F1, 16#59, 57,113,1:4>>)).
 
 
 measure(F) ->
@@ -111,19 +97,16 @@ measure(F) ->
   {timer:now_diff(T2,T1), Res}.
 
 profile() ->
-  Count = 1000000,
+  Count = 100000,
   List0 = [A || <<A:32>> <= crypto:rand_bytes(Count*3)],
-  {Delta1, List1_} = measure(fun() -> [encode(A) || A <- List0] end),
+  {DeltaE, List1_} = measure(fun() -> [encode(A) || A <- List0] end),
+  {DeltaE1, List1_} = measure(fun() -> [encode1(A) || A <- List0] end),
   
   List1 = [<<A/binary, (crypto:rand_bytes(40))/binary>> || A <- List1_],
 
-  {Delta2, List2} = measure(fun() -> [decode(B) || B <- List1] end),
-
-  {Delta3, List3} = measure(fun() -> [decode1(B) || B <- List1] end),
-
-  {Delta4, List4} = measure(fun() -> [encode1(A) || A <- List0] end),
+  {DeltaD, List2} = measure(fun() -> [decode(B) || B <- List1] end),
   
   List0 = [A || {A,_} <- List2],
   % List1 = [A || {A,<<>>} <- List4],
   
-  {enc, Delta1 / Count, dec, Delta2 / Count, dec1, Delta3 / Count, enc1, Delta4 / Count}.
+  {enc, [DeltaE / Count, DeltaE1 / Count],  dec, [DeltaD / Count]}.
