@@ -151,7 +151,7 @@ read(FileName) ->
   [{_, ROffset0}|_] = nonzero_chunks(State0),
 
   Offset0 = State0#dbstate.chunk_map_offset + ROffset0,
-  {ok, Buffer} = file:pread(State0#dbstate.file, {bof, Offset0}, FileSize - Offset0),
+  {ok, Buffer} = file:pread(State0#dbstate.file, Offset0, FileSize - Offset0),
   close(State0),
 
   {Events, _State1} = read_buffered_events(State0#dbstate{buffer = Buffer}),
@@ -192,7 +192,8 @@ append({md, _Timestamp, _Bid, _Ask} = MD, #dbstate{scale = Scale} = State) ->
 
 
 write_header(File, StockDBOpts) ->
-  ok = file:pwrite(File, bof, <<"#!/usr/bin/env stockdb\n">>),
+  {ok, 0} = file:position(File, 0),
+  ok = file:write(File, <<"#!/usr/bin/env stockdb\n">>),
   lists:foreach(fun({Key, Value}) ->
         ok = file:write(File, [io_lib:print(Key), ": ", stockdb_format:format_header_value(Key, Value), "\n"])
     end, StockDBOpts),
@@ -263,7 +264,7 @@ nonzero_chunks(#dbstate{file = File, chunk_size = ChunkSize, chunk_map_offset = 
   OffsetByteSize = ?OFFSETLEN div 8,
   ChunkCount = number_of_chunks(ChunkSize),
   ReversedResult = lists:foldl(fun(N, NZChunks) ->
-        case file:pread(File, {bof, ChunkMapOffset + OffsetByteSize*N}, OffsetByteSize) of
+        case file:pread(File, ChunkMapOffset + OffsetByteSize*N, OffsetByteSize) of
           {ok, <<0:?OFFSETLEN>>} ->
             NZChunks;
           {ok, <<NonZero:?OFFSETLEN/integer>>} ->
@@ -304,7 +305,7 @@ start_chunk(Timestamp, State) ->
   ChunkOffset = EOF - ChunkMapOffset,
 
   ByteOffsetLen = ?OFFSETLEN div 8,
-  ok = file:pwrite(File, {bof, ChunkMapOffset + ChunkNumber*ByteOffsetLen}, <<ChunkOffset:?OFFSETLEN/integer>>),
+  ok = file:pwrite(File, ChunkMapOffset + ChunkNumber*ByteOffsetLen, <<ChunkOffset:?OFFSETLEN/integer>>),
 
   NextChunkTime = Daystart + ChunkSizeMs * (ChunkNumber + 1),
 
@@ -319,7 +320,8 @@ start_chunk(Timestamp, State) ->
 append_full_md({md, Timestamp, Bid, Ask}, #dbstate{depth = Depth, file = File} = State) ->
   BidAsk = [setdepth(Bid, Depth), setdepth(Ask, Depth)],
   Data = stockdb_format:encode_full_md(Timestamp, BidAsk),
-  ok = file:pwrite(File, eof, Data),
+  {ok, _EOF} = file:position(File, eof),
+  ok = file:write(File, Data),
   {ok, State#dbstate{
       last_timestamp = Timestamp,
       last_bidask = BidAsk,
@@ -330,7 +332,8 @@ append_delta_md({md, Timestamp, Bid, Ask}, #dbstate{depth = Depth, file = File, 
   BidAsk = [setdepth(Bid, Depth), setdepth(Ask, Depth)],
   BidAskDelta = bidask_delta(LastBA, BidAsk),
   Data = stockdb_format:encode_delta_md(Timestamp - LastTS, BidAskDelta),
-  ok = file:pwrite(File, eof, Data),
+  {ok, _EOF} = file:position(File, eof),
+  ok = file:write(File, Data),
   {ok, State#dbstate{
       last_timestamp = Timestamp,
       last_bidask = BidAsk}
@@ -338,7 +341,8 @@ append_delta_md({md, Timestamp, Bid, Ask}, #dbstate{depth = Depth, file = File, 
 
 append_trade({trade, Timestamp, Price, Volume}, #dbstate{file = File} = State) ->
   Data = stockdb_format:encode_trade(Timestamp, Price, Volume),
-  ok = file:pwrite(File, eof, Data),
+  {ok, _EOF} = file:position(File, eof),
+  ok = file:write(File, Data),
   {ok, State#dbstate{last_timestamp = Timestamp}}.
 
 
@@ -373,7 +377,7 @@ fast_forward(#dbstate{file = File, chunk_size = ChunkSize, chunk_map_offset = Ch
   AbsOffset = ChunkMapOffset + LastChunkOffset,
   {ok, FileSize} = file:position(File, eof),
 
-  {ok, Buffer} = file:pread(File, {bof, AbsOffset}, FileSize - AbsOffset),
+  {ok, Buffer} = file:pread(File, AbsOffset, FileSize - AbsOffset),
   {_Packets, LastState} = read_buffered_events(State#dbstate{buffer = Buffer, next_md_full = true}),
 
   Daystart = utc_to_daystart(LastChunkTimestamp),
@@ -385,7 +389,7 @@ fast_forward(#dbstate{file = File, chunk_size = ChunkSize, chunk_map_offset = Ch
 
 
 read_timestamp_at_offset(Offset, #dbstate{file = File, chunk_map_offset = ChunkMapOffset}) ->
-  {ok, Buffer} = file:pread(File, {bof, ChunkMapOffset + Offset}, 8),
+  {ok, Buffer} = file:pread(File, ChunkMapOffset + Offset, 8),
   stockdb_format:decode_timestamp(Buffer).
 
 

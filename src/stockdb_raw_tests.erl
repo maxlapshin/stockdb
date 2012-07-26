@@ -11,9 +11,14 @@
 -define(TEMPFILE(F), filename:join(?TEMPDIR, F)).
 
 file_create_test() ->
-  check_creation_params([{stock, 'TEST'}, {date, {2012,7,26}}, {depth, 10}, {scale, 100}, {chunk_size, 300}],
+  file_create_test([]).
+raw_file_create_test() ->
+  file_create_test([raw]).
+
+file_create_test(Modes) ->
+  check_creation_params(Modes ++ [{stock, 'TEST'}, {date, {2012,7,26}}, {depth, 10}, {scale, 100}, {chunk_size, 300}],
     "TEST-20120726.300.10.100.stock"),
-  check_creation_params([{stock, 'TEST'}, {date, {2012,7,25}}, {depth, 15}, {scale, 200}, {chunk_size, 600}],
+  check_creation_params(Modes ++ [{stock, 'TEST'}, {date, {2012,7,25}}, {depth, 15}, {scale, 200}, {chunk_size, 600}],
     "TEST-20120725.600.15.200.stock").
 
 check_creation_params(DBOptions, FixtureFile) ->
@@ -33,18 +38,23 @@ db_no_regress(OldFile, NewFile) ->
   ?assertEqual(file:read_file(OldFile), file:read_file(NewFile)).
 
 write_append_test() ->
+  write_append_test([]).
+raw_write_append_test() ->
+  write_append_test([raw]).
+
+write_append_test(Options) ->
   File = ?TEMPFILE("write-append-test.temp"),
   ok = filelib:ensure_dir(File),
   ok = file:write_file(File, "GARBAGE"),
 
-  {ok, S0} = stockdb_raw:open(File, [write, {stock, 'TEST'}, {date, {2012,7,25}}, {depth, 3}, {scale, 200}, {chunk_size, 300}]),
+  {ok, S0} = stockdb_raw:open(File, Options ++ [write, {stock, 'TEST'}, {date, {2012,7,25}}, {depth, 3}, {scale, 200}, {chunk_size, 300}]),
   S1 = lists:foldl(fun(Event, State) ->
         {ok, NextState} = stockdb_raw:append(Event, State),
         NextState
     end, S0, chunk_109_content() ++ chunk_110_content_1()),
   ok = stockdb_raw:close(S1),
 
-  {ok, S2} = stockdb_raw:open(File, [append]),
+  {ok, S2} = stockdb_raw:open(File, Options ++ [append]),
   ensure_states_equal(S1, S2),
   S3 = lists:foldl(fun(Event, State) ->
         {ok, NextState} = stockdb_raw:append(Event, State),
@@ -52,7 +62,7 @@ write_append_test() ->
     end, S2, chunk_110_content_2() ++ chunk_112_content()),
   ok = stockdb_raw:close(S3),
 
-  {ok, S4} = stockdb_raw:open(File, [read]),
+  {ok, S4} = stockdb_raw:open(File, Options ++ [read]),
   ensure_states_equal(S3, S4),
   ok = stockdb_raw:close(S4),
 
