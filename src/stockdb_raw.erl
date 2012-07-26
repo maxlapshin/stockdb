@@ -6,7 +6,7 @@
 -include("log.hrl").
 -include_lib("eunit/include/eunit.hrl").
 
--export([open/2, read/1, file_info/2, append/2, close/1]).
+-export([open/2, read_file/1, file_info/2, append/2, close/1]).
 
 -define(STOCKDB_OPTIONS, [
     {version, 1},
@@ -145,7 +145,7 @@ update_db_options(OldOptions, _NewOptions) ->
   OldOptions.
 
 
-read(FileName) ->
+read_file(FileName) ->
   {ok, State0} = open(FileName, [read, binary]),
   {ok, FileSize} = file:position(State0#dbstate.file, eof),
   [{_, ROffset0}|_] = nonzero_chunks(State0),

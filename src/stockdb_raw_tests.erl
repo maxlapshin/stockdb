@@ -66,7 +66,7 @@ write_append_test(Options) ->
   ensure_states_equal(S3, S4),
   ok = stockdb_raw:close(S4),
 
-  {ok, FileEvents} = stockdb_raw:read(File),
+  {ok, FileEvents} = stockdb_raw:read_file(File),
   lists:zipwith(fun(Expected, Read) ->
         ensure_packets_equal(Expected, Read)
     end,
