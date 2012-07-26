@@ -162,11 +162,19 @@ file_info(FileName, Fields) ->
   {ok, File} = file:open(FileName, [read, binary]),
   {ok, 0} = file:position(File, bof),
 
-  {ok, SavedDBOpts, _ChunkMapOffset} = read_header(File),
-  file:close(File),
-  lists:map(fun(Field) ->
+  {ok, SavedDBOpts, ChunkMapOffset} = read_header(File),
+
+  Result = lists:map(fun
+      (presence) ->
+        ChunkSize = proplists:get_value(chunk_size, SavedDBOpts),
+        NZChunks = nonzero_chunks(#dbstate{file=File, chunk_map_offset = ChunkMapOffset, chunk_size = ChunkSize}),
+        {number_of_chunks(ChunkSize), [N || {N, _} <- NZChunks]};
+      (Field) ->
         proplists:get_value(Field, SavedDBOpts)
-    end, Fields).
+    end, Fields),
+
+  file:close(File),
+  Result.
 
 
 close(#dbstate{file = File} = _State) ->
