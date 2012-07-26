@@ -8,5 +8,4 @@ stop() ->
   erlang:exit(erlang:whereis(?MODULE), shutdown).
 
 init([]) ->
-  stockdb:autocreate_table(),
   {ok, {{one_for_one, 10, 10}, []}}.
