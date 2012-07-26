@@ -374,7 +374,7 @@ fast_forward(#dbstate{file = File, chunk_size = ChunkSize, chunk_map_offset = Ch
   {ok, FileSize} = file:position(File, eof),
 
   {ok, Buffer} = file:pread(File, {bof, AbsOffset}, FileSize - AbsOffset),
-  {_Packets, LastState} = read_buffered_events(State#dbstate{buffer = Buffer}),
+  {_Packets, LastState} = read_buffered_events(State#dbstate{buffer = Buffer, next_md_full = true}),
 
   Daystart = utc_to_daystart(LastChunkTimestamp),
   ChunkSizeMs = timer:?CHUNKUNITS(ChunkSize),
@@ -404,7 +404,7 @@ read_packet_from_buffer(#dbstate{buffer = Buffer} = State) ->
       {Timestamp, BidAsk, Tail} = stockdb_format:decode_full_md(Buffer, State#dbstate.depth),
 
       {packet_from_mdentry(Timestamp, BidAsk, State),
-        State#dbstate{last_timestamp = Timestamp, last_bidask = BidAsk, buffer = Tail}};
+        State#dbstate{last_timestamp = Timestamp, last_bidask = BidAsk, buffer = Tail, next_md_full = false}};
     delta_md ->
       {DTimestamp, DBidAsk, Tail} = stockdb_format:decode_delta_md(Buffer, State#dbstate.depth),
       BidAsk = bidask_delta_apply(State#dbstate.last_bidask, DBidAsk),
