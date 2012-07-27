@@ -19,8 +19,8 @@ full_md_negative_price_test() ->
   Timestamp = 16#138BDF77CBA,
   BidAsk = [[{-1530, 250}, {-1520, 111}], [{-1673, 15}, {-1700, 90}]],
   Bin = <<16#80000138BDF77CBA:64/integer,
-    -1530:32/unsigned-integer, 250:32/integer,  -1520:32/unsigned-integer, 111:32/integer,
-    -1673:32/unsigned-integer, 15:32/integer,   -1700:32/unsigned-integer, 90:32/integer>>,
+    -1530:32/signed-integer, 250:32/integer,  -1520:32/signed-integer, 111:32/integer,
+    -1673:32/signed-integer, 15:32/integer,   -1700:32/signed-integer, 90:32/integer>>,
   Tail = <<7, 239, 183, 19>>,
 
   ?assertEqual(full_md, stockdb_format:packet_type(Bin)),
