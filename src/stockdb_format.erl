@@ -17,9 +17,10 @@ nested_foldl(Fun, Acc, Element) ->
 
 -spec encode_full_md(Timestamp::integer(), BidAsk::[{Price::integer(), Volume::integer()}]) -> iolist().
 encode_full_md(Timestamp, BidAsk) ->
-  nested_foldl(fun({Price, Volume}, Acc) ->
-        <<Acc/binary, Price:32/integer, Volume:32/integer>>
-    end, <<1:1, 0:1, Timestamp:62/integer>>, BidAsk).
+  nested_foldl(fun append_full_PV/2, <<1:1, 0:1, Timestamp:62/integer>>, BidAsk).
+
+append_full_PV({Price, Volume}, Acc) when is_integer(Price) andalso is_integer(Volume) andalso Volume >= 0 ->
+  <<Acc/binary, Price:32/signed-integer, Volume:32/unsigned-integer>>.
 
 encode_delta_md(TimeDelta, BidAskDelta) ->
   ETimeDelta = leb128:encode(TimeDelta),
@@ -46,18 +47,18 @@ packet_type(<<1:1, 0:1, _Tail/bitstring>>) -> full_md;
 packet_type(<<1:1, 1:1, _Tail/bitstring>>) -> trade;
 packet_type(<<0:1, _Tail/bitstring>>) -> delta_md.
 
-decode_timestamp(<<1:1, _:1/integer, Timestamp:62/integer, _Tail/bitstring>>) ->
+decode_timestamp(<<1:1, _:1/integer, Timestamp:62/integer, _Tail/binary>>) ->
   Timestamp.
 
 
-decode_full_md(<<1:1, Timestamp:63/integer, BidAskTail/bitstring>>, Depth) ->
+decode_full_md(<<1:1, Timestamp:63/integer, BidAskTail/binary>>, Depth) ->
   {Bid, AskTail} = decode_full_bidask(BidAskTail, Depth),
   {Ask, Tail} = decode_full_bidask(AskTail, Depth),
   {Timestamp, [Bid, Ask], Tail}.
 
 decode_full_bidask(Tail, 0) ->
   {[], Tail};
-decode_full_bidask(<<Price:32/integer, Volume:32/integer, Tail/bitstring>>, Depth) ->
+decode_full_bidask(<<Price:32/signed-integer, Volume:32/unsigned-integer, Tail/binary>>, Depth) ->
   Line = {Price, Volume},
   {TailLines, FinalTail} = decode_full_bidask(Tail, Depth - 1),
   {[Line | TailLines], FinalTail}.
