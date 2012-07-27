@@ -45,7 +45,6 @@ raw_write_append_test() ->
 write_append_test(Options) ->
   File = ?TEMPFILE("write-append-test.temp"),
   ok = filelib:ensure_dir(File),
-  ok = file:write_file(File, "GARBAGE"),
 
   {ok, S0} = stockdb_raw:open(File, Options ++ [write, {stock, 'TEST'}, {date, {2012,7,25}}, {depth, 3}, {scale, 200}, {chunk_size, 300}]),
   S1 = lists:foldl(fun(Event, State) ->
@@ -71,7 +70,43 @@ write_append_test(Options) ->
         ensure_packets_equal(Expected, Read)
     end,
     chunk_109_content() ++ chunk_110_content_1() ++ chunk_110_content_2() ++ chunk_112_content(),
-    FileEvents).
+    FileEvents),
+  ok = file:delete(File).
+
+db_repair_test() ->
+  File = ?TEMPFILE("db-repair-test.temp"),
+  ok = filelib:ensure_dir(File),
+
+  {ok, S0} = stockdb_raw:open(File, [write, {stock, 'TEST'}, {date, {2012,7,25}}, {depth, 3}, {scale, 200}, {chunk_size, 300}]),
+  S1 = lists:foldl(fun(Event, State) ->
+        {ok, NextState} = stockdb_raw:append(Event, State),
+        NextState
+    end, S0, chunk_109_content() ++ chunk_110_content_1()),
+  ok = stockdb_raw:close(S1),
+
+  {ok, F} = file:open(File, [read, write]),
+  {ok, _} = file:position(F, {eof, -1}),
+  ok = file:truncate(F),
+  ok = file:close(F),
+
+  ?assertThrow({truncate_failed, _}, stockdb_raw:open(File, [read])),
+
+  {ok, S2} = stockdb_raw:open(File, [append]),
+  S3 = lists:foldl(fun(Event, State) ->
+        {ok, NextState} = stockdb_raw:append(Event, State),
+        NextState
+    end, S2, chunk_110_content_2() ++ chunk_112_content()),
+  ok = stockdb_raw:close(S3),
+
+  {ok, FileEvents} = stockdb_raw:read_file(File),
+  lists:zipwith(fun(Expected, Read) ->
+        ensure_packets_equal(Expected, Read)
+    end,
+    chunk_109_content() ++ chunk_110_content_1_trunc() ++ chunk_110_content_2() ++ chunk_112_content(),
+    FileEvents),
+
+  ok = file:delete(File).
+
 
 chunk_109_content() ->
   [
@@ -87,10 +122,14 @@ chunk_109_content() ->
     {md, 1343207382471, [{12.34, 300}, {12.195, 120}, {11.97, 1200}], [{12.435, 650}, {12.47,  950}, {12.65, 600}]}
   ].
 
-chunk_110_content_1() ->
+chunk_110_content_1_trunc() ->
   [
  {trade, 1343207402486, 12.445, 300},
-    {md, 1343207410324, [{12.35, 800}, {12.270, 450}, {11.97, 1200}], [{12.435, 450}, {12.47,  850}, {12.65, 600}]},
+    {md, 1343207410324, [{12.35, 800}, {12.270, 450}, {11.97, 1200}], [{12.435, 450}, {12.47,  850}, {12.65, 600}]}
+  ].
+
+chunk_110_content_1() ->
+  chunk_110_content_1_trunc() ++ [
     {md, 1343207417957, [{12.35, 800}, {12.270, 450}, {11.97, 1200}], [{12.450, 800}, {12.49, 1000}, {12.65, 600}]}
   ].
 

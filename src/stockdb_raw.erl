@@ -386,7 +386,23 @@ fast_forward(#dbstate{file = File, chunk_size = ChunkSize, chunk_map_offset = Ch
   {ok, FileSize} = file:position(File, eof),
 
   {ok, Buffer} = file:pread(File, AbsOffset, FileSize - AbsOffset),
-  {_Packets, LastState} = read_buffered_events(State#dbstate{buffer = Buffer, next_md_full = true}),
+  LastState = case read_buffered_events(State#dbstate{buffer = Buffer, next_md_full = true}) of
+    {_Packets, OKState} ->
+      OKState;
+
+    {parse_error, FailState, _Packets} ->
+      % Try to truncate erroneous tail
+      BufferLen = erlang:byte_size(Buffer),
+      ErrorLen = erlang:byte_size(FailState#dbstate.buffer),
+      ?D({truncating_last_bytes, ErrorLen}),
+      % Calculate position relative to chunk start
+      GoodBufLen = BufferLen - ErrorLen,
+      % Set position
+      {ok, _} = file:position(File, AbsOffset + GoodBufLen),
+      % Truncate. It will fail on read-only file, but it is OK
+      ok == file:truncate(File) orelse erlang:throw({truncate_failed, possible_read_only}),
+      FailState#dbstate{buffer = undefined}
+  end,
 
   Daystart = utc_to_daystart(LastChunkTimestamp),
   ChunkSizeMs = timer:?CHUNKUNITS(ChunkSize),
@@ -407,8 +423,14 @@ read_buffered_events(State) ->
 read_buffered_events(#dbstate{buffer = <<>>} = State, RevEvents) ->
   {lists:reverse(RevEvents), State};
 read_buffered_events(#dbstate{} = State, RevEvents) ->
-  {Event, NewState} = read_packet_from_buffer(State),
-  read_buffered_events(NewState, [Event|RevEvents]).
+  try
+    {Event, NewState} = read_packet_from_buffer(State),
+    read_buffered_events(NewState, [Event|RevEvents])
+  catch
+    error:Error ->
+      ?D({parse_error, State#dbstate.buffer, Error}),
+      {parse_error, State, lists:reverse(RevEvents)}
+  end.
 
 read_packet_from_buffer(#dbstate{buffer = Buffer} = State) ->
   case stockdb_format:packet_type(Buffer) of
