@@ -15,6 +15,24 @@ full_md_test() ->
   ?assertEqual(Bin, stockdb_format:encode_full_md(Timestamp, BidAsk)),
   ?assertEqual({Timestamp, BidAsk, Tail}, stockdb_format:decode_full_md(<<Bin/binary, Tail/bitstring>>, 2)).
 
+full_md_negative_price_test() ->
+  Timestamp = 16#138BDF77CBA,
+  BidAsk = [[{-1530, 250}, {-1520, 111}], [{-1673, 15}, {-1700, 90}]],
+  Bin = <<16#80000138BDF77CBA:64/integer,
+    -1530:32/unsigned-integer, 250:32/integer,  -1520:32/unsigned-integer, 111:32/integer,
+    -1673:32/unsigned-integer, 15:32/integer,   -1700:32/unsigned-integer, 90:32/integer>>,
+  Tail = <<7, 239, 183, 19>>,
+
+  ?assertEqual(full_md, stockdb_format:packet_type(Bin)),
+  ?assertEqual(Bin, stockdb_format:encode_full_md(Timestamp, BidAsk)),
+  ?assertEqual({Timestamp, BidAsk, Tail}, stockdb_format:decode_full_md(<<Bin/binary, Tail/bitstring>>, 2)).
+
+full_md_negative_volume_test() ->
+  Timestamp = 16#138BDF77CBA,
+  BidAsk = [[{1530, 250}, {1520, 111}], [{1673, -15}, {1700, 90}]],
+  ?assertException(error, function_clause, stockdb_format:encode_full_md(Timestamp, BidAsk)).
+
+
 delta_md_test() ->
   DTimestamp = 270,
   DBidAsk = [[{0, -4}, {0, 0}], [{-230, 100}, {-100, -47}]],
