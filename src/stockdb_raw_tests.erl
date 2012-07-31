@@ -2,7 +2,7 @@
 
 -include_lib("eunit/include/eunit.hrl").
 
--define(TESTDIR, "apps/stockdb/test").
+-define(TESTDIR, code:lib_dir(stockdb, test)).
 
 -define(FIXTUREDIR, filename:join(?TESTDIR, "fixtures")).
 -define(FIXTUREFILE(F), filename:join(?FIXTUREDIR, F)).
@@ -22,7 +22,7 @@ file_create_test(Modes) ->
     "TEST-20120725.600.15.200.stock").
 
 check_creation_params(DBOptions, FixtureFile) ->
-  true = filelib:is_dir(?TESTDIR),
+  ?assert(filelib:is_dir(?TESTDIR)),
 
   File = ?TEMPFILE("creation-test.temp"),
   ok = filelib:ensure_dir(File),
@@ -107,6 +107,16 @@ db_repair_test() ->
 
   ok = file:delete(File).
 
+
+c_library_one_row_test() ->
+  Timestamp = 1343207118230, 
+  Bid = [{1234, 715}, {1219, 201}, {1197, 1200}],
+  Ask = [{1243, 601}, {1247, 1000}, {1260, 800}],
+  Depth = length(Bid),
+  Bin = stockdb_format:encode_full_md(Timestamp, Bid ++ Ask),
+  ?assertEqual({ok, {md, Timestamp, Bid, Ask}, <<1,2,3,4>>}, stockdb_format:read_one_row(<<Bin/binary, 1,2,3,4>>, Depth)),
+  ok.
+  
 
 chunk_109_content() ->
   [

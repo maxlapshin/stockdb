@@ -2,13 +2,29 @@
 -module(stockdb_format).
 -author({"Danil Zagoskin", z@gosk.in}).
 
--include_lib("eunit/include/eunit.hrl").
+-on_load(init_nif/0).
 
+
+
+-include_lib("eunit/include/eunit.hrl").
+-export([read_one_row/2]).
 -export([encode_full_md/2, encode_delta_md/2]).
 -export([encode_trade/3, decode_trade/1]).
 -export([decode_timestamp/1]).
 -export([packet_type/1, decode_full_md/2, decode_delta_md/2]).
 -export([format_header_value/2, parse_header_value/2]).
+
+
+
+init_nif() ->
+  Path = filename:dirname(code:which(?MODULE)) ++ "/../priv",
+  Load = erlang:load_nif(Path ++ "/stockdb_format", 0),
+  case Load of
+    ok -> ok;
+    {error, {Reason,Text}} -> io:format("Load stockdb_format failed. ~p:~p~n", [Reason, Text])
+  end,
+  ok.
+
 
 nested_foldl(Fun, Acc0, List) when is_list(List) ->
   lists:foldl(fun(E, Acc) -> nested_foldl(Fun, Acc, E) end, Acc0, List);
@@ -43,12 +59,17 @@ encode_delta_value(0) -> <<0:1>>;
 encode_delta_value(V) -> <<1:1, (leb128:encode_signed(V))/bitstring>>.
 
 
+read_one_row(_Bin, _Depth) ->
+  erlang:error(nif_not_loaded).
+
+
 packet_type(<<1:1, 0:1, _Tail/bitstring>>) -> full_md;
 packet_type(<<1:1, 1:1, _Tail/bitstring>>) -> trade;
 packet_type(<<0:1, _Tail/bitstring>>) -> delta_md.
 
 decode_timestamp(<<1:1, _:1/integer, Timestamp:62/integer, _Tail/binary>>) ->
   Timestamp.
+
 
 
 decode_full_md(<<1:1, Timestamp:63/integer, BidAskTail/binary>>, Depth) ->
