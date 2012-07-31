@@ -54,6 +54,17 @@ trade_test() ->
   ?assertEqual(Bin, stockdb_format:encode_trade(Timestamp, Price, Volume)),
   ?assertEqual({Timestamp, Price, Volume, Tail}, stockdb_format:decode_trade(<<Bin/binary, Tail/binary>>)).
 
+trade_zerovolume_test() ->
+  Timestamp = 16#138BDF77CBA,
+  Price = 16#DEAD,
+  Volume = 0,
+  Bin = <<16#C0000138BDF77CBA:64/integer, Price:32/integer, Volume:32/integer>>,
+  Tail = <<7, 239, 183, 19>>,
+
+  ?assertEqual(trade, stockdb_format:packet_type(Bin)),
+  ?assertEqual(Bin, stockdb_format:encode_trade(Timestamp, Price, Volume)),
+  ?assertEqual({Timestamp, Price, Volume, Tail}, stockdb_format:decode_trade(<<Bin/binary, Tail/binary>>)).
+
 trade_negative_test() ->
   Timestamp = 16#138BDF77CBA,
   Price = -16#DEAD,
