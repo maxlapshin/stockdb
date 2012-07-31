@@ -36,7 +36,7 @@ encode_delta_md(TimeDelta, BidAskDelta) ->
 
   <<Unpadded/bitstring, 0:MissingBits/integer>>.
 
-encode_trade(Timestamp, Price, Volume) when is_integer(Price) andalso is_integer(Volume) andalso Volume > 0 ->
+encode_trade(Timestamp, Price, Volume) when is_integer(Price) andalso is_integer(Volume) andalso Volume >= 0 ->
   <<1:1, 1:1, Timestamp:62/integer, Price:32/signed-integer, Volume:32/unsigned-integer>>.
 
 encode_delta_value(0) -> <<0:1>>;
