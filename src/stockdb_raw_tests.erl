@@ -108,15 +108,46 @@ db_repair_test() ->
   ok = file:delete(File).
 
 
-c_library_one_row_test() ->
+c_encode_full_md_test() ->
   Timestamp = 1343207118230, 
   Bid = [{1234, 715}, {1219, 201}, {1197, 1200}],
   Ask = [{1243, 601}, {1247, 1000}, {1260, 800}],
   Depth = length(Bid),
   Bin = stockdb_format:encode_full_md(Timestamp, Bid ++ Ask),
   ?assertEqual({ok, {md, Timestamp, Bid, Ask}, <<1,2,3,4>>}, stockdb_format:read_one_row(<<Bin/binary, 1,2,3,4>>, Depth)),
-  ok.
+  ?assertEqual({Timestamp, [Bid, Ask], <<1,2,3,4>>}, stockdb_format:decode_full_md(<<Bin/binary, 1,2,3,4>>, Depth)),
   
+  % N = 100000,
+  % L = lists:seq(1,N),
+  % B1 = <<Bin/binary, 1,2,3,4>>,
+  % T1 = erlang:now(),
+  % [stockdb_format:read_one_row(B1, Depth) || _ <- L],
+  % T2 = erlang:now(),
+  % [stockdb_format:decode_full_md(B1, Depth) || _ <- L],
+  % T3 = erlang:now(),
+  % ?debugFmt("Full  ~p: ~B, ~B~n", [N, timer:now_diff(T2,T1), timer:now_diff(T3,T2)]),
+  ok.
+
+c_encode_delta_md_test() ->
+  Timestamp = 15, 
+  Bid = [{0, 5}, {-1, 20}, {4334, 1200}],
+  Ask = [{12, 0}, {0, 0}, {1000, 800}],
+  Depth = length(Bid),
+  Bin = stockdb_format:encode_delta_md(Timestamp, Bid ++ Ask),
+  ?assertEqual({ok, {delta, Timestamp, Bid, Ask}, <<1,2,3,4>>}, stockdb_format:read_one_row(<<Bin/binary, 1,2,3,4>>, Depth)),
+  ?assertEqual({Timestamp, [Bid, Ask], <<1,2,3,4>>}, stockdb_format:decode_delta_md(<<Bin/binary, 1,2,3,4>>, Depth)),
+
+  % N = 100000,
+  % L = lists:seq(1,N),
+  % B1 = <<Bin/binary, 1,2,3,4>>,
+  % T1 = erlang:now(),
+  % [stockdb_format:read_one_row(B1, Depth) || _ <- L],
+  % T2 = erlang:now(),
+  % [stockdb_format:decode_delta_md(B1, Depth) || _ <- L],
+  % T3 = erlang:now(),
+  % ?debugFmt("Delta ~p: ~B, ~B~n", [N, timer:now_diff(T2,T1), timer:now_diff(T3,T2)]),
+  ok.
+
 
 chunk_109_content() ->
   [
