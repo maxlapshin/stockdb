@@ -262,10 +262,20 @@ write_chunk_map(File, StockDBOpts) ->
 
 read_chunk_map(#dbstate{} = State) ->
   ChunkMap = lists:map(fun({Number, Offset}) ->
-        Timestamp = read_timestamp_at_offset(Offset, State),
-        {Number, Timestamp, Offset}
+          try
+            Timestamp = read_timestamp_at_offset(Offset, State),
+            {Number, Timestamp, Offset}
+          catch
+            error:Reason ->
+              ?D({error_reading_timestamp, Offset, Reason}),
+              write_chunk_offset(Number, 0, State),
+              {Number, 0, 0}
+          end
     end, nonzero_chunks(State)),
-  State#dbstate{chunk_map = ChunkMap}.
+  GoodChunkMap = lists:filter(fun({_Number, Timestamp, Offset}) ->
+          Timestamp * 1 > 0 andalso Offset * 1 > 0
+      end, ChunkMap),
+  State#dbstate{chunk_map = GoodChunkMap}.
 
 
 nonzero_chunks(#dbstate{file = File, chunk_size = ChunkSize, chunk_map_offset = ChunkMapOffset}) ->
@@ -299,9 +309,7 @@ start_chunk(Timestamp, State) ->
   #dbstate{
     daystart = Daystart,
     chunk_size = ChunkSize,
-    chunk_map_offset = ChunkMapOffset,
-    chunk_map = ChunkMap,
-    file = File} = State,
+    chunk_map = ChunkMap} = State,
 
   ChunkSizeMs = timer:?CHUNKUNITS(ChunkSize),
   ChunkNumber = (Timestamp - Daystart) div ChunkSizeMs,
@@ -309,11 +317,8 @@ start_chunk(Timestamp, State) ->
   % sanity check
   (Timestamp - Daystart) < timer:hours(24) orelse erlang:error({not_this_day, Timestamp}),
 
-  {ok, EOF} = file:position(File, eof),
-  ChunkOffset = EOF - ChunkMapOffset,
-
-  ByteOffsetLen = ?OFFSETLEN div 8,
-  ok = file:pwrite(File, ChunkMapOffset + ChunkNumber*ByteOffsetLen, <<ChunkOffset:?OFFSETLEN/integer>>),
+  ChunkOffset = current_chunk_offset(State),
+  write_chunk_offset(ChunkNumber, ChunkOffset, State),
 
   NextChunkTime = Daystart + ChunkSizeMs * (ChunkNumber + 1),
 
@@ -323,7 +328,15 @@ start_chunk(Timestamp, State) ->
     chunk_map = ChunkMap ++ [Chunk],
     next_chunk_time = NextChunkTime,
     next_md_full = true}.
-  
+ 
+current_chunk_offset(#dbstate{file = File, chunk_map_offset = ChunkMapOffset} = _State) ->
+  {ok, EOF} = file:position(File, eof),
+  _ChunkOffset = EOF - ChunkMapOffset.
+
+write_chunk_offset(ChunkNumber, ChunkOffset, #dbstate{file = File, chunk_map_offset = ChunkMapOffset} = _State) ->
+  ByteOffsetLen = ?OFFSETLEN div 8,
+  ok = file:pwrite(File, ChunkMapOffset + ChunkNumber*ByteOffsetLen, <<ChunkOffset:?OFFSETLEN/integer>>).
+
 
 append_full_md({md, Timestamp, Bid, Ask}, #dbstate{depth = Depth, file = File} = State) ->
   BidAsk = [setdepth(Bid, Depth), setdepth(Ask, Depth)],
