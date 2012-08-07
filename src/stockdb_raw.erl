@@ -7,6 +7,7 @@
 -include_lib("eunit/include/eunit.hrl").
 
 -export([open/2, read_file/1, file_info/2, append/2, close/1]).
+-export([foldl/3]).
 
 -define(STOCKDB_OPTIONS, [
     {version, 1},
@@ -156,6 +157,39 @@ read_file(FileName) ->
 
   {Events, _State1} = read_buffered_events(State0#dbstate{buffer = Buffer}),
   {ok, Events}.
+
+% Foldl: low-memory fold over entries
+foldl(Fun, Acc0, FileName) ->
+  {ok, State0} = open(FileName, [read, binary]),
+  File = State0#dbstate.file,
+  {ok, FileSize} = file:position(File, eof),
+
+  ChunkROffsets = [Offset || {_Number, Offset} <- nonzero_chunks(State0)],
+
+  % Get start of data and list of chunk ends
+  % Note: this will always work, even if there are no chunks
+  [FirstROffset|ChunkEnds] = ChunkROffsets ++ [FileSize],
+
+  % Get chunk sizes for easy read
+  {ChunkSizes, _} = lists:mapfoldl(fun(Offset, PrevOffset) ->
+        Size = Offset - PrevOffset,
+        {Size, Offset}
+    end, FirstROffset, ChunkEnds),
+
+  % Go to first chunk start
+  file:position(File, State0#dbstate.chunk_map_offset + FirstROffset),
+
+  % Fold over chunks
+  FoldResult = lists:foldl(fun(ChunkSize, AccIn) ->
+        {ok, Buffer} = file:read(File, ChunkSize),
+        % We don't need fresh state at chunk start, so drop modified one
+        {Events, _State1} = read_buffered_events(State0#dbstate{buffer = Buffer}),
+        % Do partial foldl on this chunk
+        _AccOut = lists:foldl(Fun, AccIn, Events)
+    end, Acc0, ChunkSizes),
+
+  close(State0),
+  FoldResult.
 
 
 file_info(FileName, Fields) ->

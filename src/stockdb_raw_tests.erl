@@ -148,6 +148,35 @@ c_encode_delta_md_test() ->
   % ?debugFmt("Delta ~p: ~B, ~B~n", [N, timer:now_diff(T2,T1), timer:now_diff(T3,T2)]),
   ok.
 
+foldl_test() ->
+  File = ?TEMPFILE("foldl-test.temp"),
+  ok = filelib:ensure_dir(File),
+
+  {ok, S0} = stockdb_raw:open(File, [write, {stock, 'TEST'}, {date, {2012,7,25}}, {depth, 3}, {scale, 200}, {chunk_size, 300}]),
+  S1 = lists:foldl(fun(Event, State) ->
+        {ok, NextState} = stockdb_raw:append(Event, State),
+        NextState
+    end, S0, full_content()),
+  ok = stockdb_raw:close(S1),
+
+  % Meaningless functions. We know that events are stored correctly,
+  % so just test folding
+  CountFun = fun(_, Count) -> Count+1 end,
+
+  FoldFun2 = fun
+    ({md, _UTC, Bid, Ask}, AccIn) ->
+      AccIn + length(Bid) + length(Ask);
+    ({trade, _UTC, Price, _Volume}, AccIn) ->
+      AccIn - erlang:round(Price)
+  end,
+
+  ?assertEqual(lists:foldl(CountFun, 0, full_content()),
+    stockdb_raw:foldl(CountFun, 0, File)),
+
+  ?assertEqual(lists:foldl(FoldFun2, 720, full_content()),
+    stockdb_raw:foldl(FoldFun2, 720, File)),
+
+  ok = file:delete(File).
 
 chunk_109_content() ->
   [
@@ -185,6 +214,10 @@ chunk_112_content() ->
   [
     {md, 1343208100274, [{12.35, 700}, {12.265, 400}, {11.97, 1100}], [{12.440, 450}, {12.48, 1200}, {12.65, 800}]}
   ].
+
+full_content() ->
+  chunk_109_content() ++ chunk_110_content_1() ++ chunk_110_content_2() ++ chunk_112_content().
+
 
 ensure_states_equal(State1, State2) ->
   Elements = lists:seq(1, size(State1)) -- [3, 4],
