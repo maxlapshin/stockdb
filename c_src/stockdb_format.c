@@ -138,16 +138,27 @@ read_one_row(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
   
   ErlNifUInt64 timestamp;
   
+  const ERL_NIF_TERM *prev;
+
+  int32_t bid_prices[depth];
+  int32_t bid_sizes[depth];
   ERL_NIF_TERM bid[depth];
+
+  int32_t ask_prices[depth];
+  int32_t ask_sizes[depth];
   ERL_NIF_TERM ask[depth];
   int i;
   
+  int unpacking_delta = 0;
+  
   ERL_NIF_TERM tag;
   
-  if(bit_get(&br)) {
-    if(bit_get(&br)) {
+  if(bit_get(&br)) {  // Decode full coded string
+    if(bit_get(&br)) { // this means trade encoded
       return enif_make_badarg(env);
     }
+    
+    // Here is decoding of simply coded full string
     tag = enif_make_atom(env, "md");
     timestamp = bits_get(&br, 62);
     for(i = 0; i < depth; i++) {
@@ -163,18 +174,78 @@ read_one_row(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
         );
     }
   } else {
-    tag = enif_make_atom(env, "delta");
+    // Here goes decoding of delta string
+    if(argc == 2) {
+      // This means that we are isolated, without previous row
+      unpacking_delta = 0;
+      tag = enif_make_atom(env, "delta");
+    } else if(argc == 3) {
+      // And this means that we will append delta values to previous row
+      unpacking_delta = 1;
+      tag = enif_make_atom(env, "md");
+      int arity = 0;
+      if(!enif_get_tuple(env, argv[2], &arity, &prev)) return enif_make_badarg(env);
+      if(arity != 4) return enif_make_badarg(env);
+    }
+    
     timestamp = leb128_decode_unsigned(&br);
     for(i = 0; i < depth; i++) {
-      bid[i] = enif_make_tuple2(env,
-        enif_make_int(env, (int32_t)decode_delta(&br)),
-        enif_make_uint(env, (uint32_t)decode_delta(&br))
-        );
+      bid_prices[i] = (int32_t)decode_delta(&br);
+      bid_sizes[i] = (uint32_t)decode_delta(&br);
     }
     for(i = 0; i < depth; i++) {
+      ask_prices[i] = (int32_t)decode_delta(&br);
+      ask_sizes[i] = (uint32_t)decode_delta(&br);
+    }
+    
+    if(unpacking_delta) {
+      ErlNifUInt64 prev_ts;
+      if(!enif_get_uint64(env, prev[1], &prev_ts)) return enif_make_badarg(env);
+      timestamp += prev_ts;
+      
+      ERL_NIF_TERM head, tail;
+      
+      // add previous values to bid
+      tail = prev[2];
+      for(i = 0; i < depth; i++) {
+        if(!enif_get_list_cell(env, tail, &head, &tail)) return enif_make_badarg(env);
+        int ar = 0;
+        const ERL_NIF_TERM *price_vol;
+        if(!enif_get_tuple(env, head, &ar, &price_vol)) return enif_make_badarg(env);
+        if(ar != 2) return enif_make_badarg(env);
+        
+        int price, volume;
+        if(!enif_get_int(env, price_vol[0], &price)) return enif_make_badarg(env);
+        if(!enif_get_int(env, price_vol[1], &volume)) return enif_make_badarg(env);
+        bid_prices[i] += price;
+        bid_sizes[i] += volume;
+      }
+
+      // and add previous values to ask
+      tail = prev[3];
+      for(i = 0; i < depth; i++) {
+        if(!enif_get_list_cell(env, tail, &head, &tail)) return enif_make_badarg(env);
+        int ar = 0;
+        const ERL_NIF_TERM *price_vol;
+        if(!enif_get_tuple(env, head, &ar, &price_vol)) return enif_make_badarg(env);
+        if(ar != 2) return enif_make_badarg(env);
+        
+        int price, volume;
+        if(!enif_get_int(env, price_vol[0], &price)) return enif_make_badarg(env);
+        if(!enif_get_int(env, price_vol[1], &volume)) return enif_make_badarg(env);
+        ask_prices[i] += price;
+        ask_sizes[i] += volume;
+      }
+    }
+    
+    for(i = 0; i < depth; i++) {
+      bid[i] = enif_make_tuple2(env,
+        enif_make_int(env, bid_prices[i]),
+        enif_make_int(env, bid_sizes[i])
+        );
       ask[i] = enif_make_tuple2(env,
-        enif_make_int(env, (int32_t)decode_delta(&br)),
-        enif_make_uint(env, (uint32_t)decode_delta(&br))
+        enif_make_int(env, ask_prices[i]),
+        enif_make_int(env, ask_sizes[i])
         );
     }
   }
@@ -205,7 +276,8 @@ static int reload(ErlNifEnv* env, void** priv_data, ERL_NIF_TERM load_info) {
 
 static ErlNifFunc stockdb_funcs[] =
 {
-  {"read_one_row", 2, read_one_row}
+  {"read_one_row", 2, read_one_row},
+  {"read_one_row", 3, read_one_row}
 };
 
 

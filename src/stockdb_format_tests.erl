@@ -138,3 +138,40 @@ c_encode_delta_md_test() ->
   T3 = erlang:now(),
   ?debugFmt("Delta ~p: nif ~B, erl ~B~n", [N, timer:now_diff(T2,T1), timer:now_diff(T3,T2)]),
   ok.
+
+
+c_encode_two_delta_md_test() ->
+  Timestamp1 = 1343207118230, 
+  Bid1 = [{1234, 715}, {1219, 201}, {1197, 1200}],
+  Ask1 = [{1243, 601}, {1247, 1000}, {1260, 800}],
+  Depth = length(Bid1),
+  Bin1 = stockdb_format:encode_full_md(Timestamp1, Bid1 ++ Ask1),
+  
+  Timestamp2 = 15, 
+  Bid2 = [{0, 5}, {-1, 20}, {4334, 1200}],
+  Ask2 = [{12, 0}, {0, 0}, {1000, 800}],
+  
+  Timestamp2_ = Timestamp1+Timestamp2,
+  Bid2_ = lists:zipwith(fun({Price, Volume}, {DPrice, DVolume}) ->
+    {Price + DPrice, Volume + DVolume}
+  end, Bid1, Bid2),
+  Ask2_ = lists:zipwith(fun({Price, Volume}, {DPrice, DVolume}) ->
+    {Price + DPrice, Volume + DVolume}
+  end, Ask1, Ask2),
+
+  Bin2 = stockdb_format:encode_delta_md(Timestamp2, Bid2 ++ Ask2),
+  
+  ?assertEqual({ok, {md, Timestamp1, Bid1, Ask1}, Bin2}, stockdb_format:read_one_row(<<Bin1/binary, Bin2/binary>>, Depth)),
+  MD = {md, Timestamp1, Bid1, Ask1},
+  ?assertEqual({ok, {md, Timestamp2_, Bid2_, Ask2_}, <<>>}, stockdb_format:read_one_row(Bin2, Depth, MD)),
+  
+  % N = 100000,
+  % L = lists:seq(1,N),
+  % B1 = <<Bin/binary, 1,2,3,4>>,
+  % T1 = erlang:now(),
+  % [stockdb_format:read_one_row(B1, Depth) || _ <- L],
+  % T2 = erlang:now(),
+  % [stockdb_format:decode_delta_md(B1, Depth) || _ <- L],
+  % T3 = erlang:now(),
+  % ?debugFmt("Delta ~p: nif ~B, erl ~B~n", [N, timer:now_diff(T2,T1), timer:now_diff(T3,T2)]),
+  ok.

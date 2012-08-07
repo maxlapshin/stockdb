@@ -7,7 +7,7 @@
 
 
 -include_lib("eunit/include/eunit.hrl").
--export([read_one_row/2]).
+-export([read_one_row/2, read_one_row/3]).
 -export([encode_full_md/2, encode_delta_md/2]).
 -export([encode_trade/3, decode_trade/1]).
 -export([decode_timestamp/1]).
@@ -60,6 +60,9 @@ encode_delta_value(V) -> <<1:1, (leb128:encode_signed(V))/bitstring>>.
 
 
 read_one_row(_Bin, _Depth) ->
+  erlang:error(nif_not_loaded).
+
+read_one_row(_Bin, _Depth, _Previous) ->
   erlang:error(nif_not_loaded).
 
 
