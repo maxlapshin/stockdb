@@ -38,6 +38,11 @@ static inline unsigned char bit_get(struct BitReader *br) {
 static inline uint64_t bits_get(struct BitReader *br, int bits) {
   int i;
   uint64_t result = 0;
+  while(bits >= 8 && br->offset % 8 == 0 && br->offset <= (br->size - 1)*8) {
+    bits -= 8;
+    result = (result << 8) | br->bytes[br->offset / 8];
+    br->offset += 8;
+  }
   for(i = 0; i < bits; i++) {
     result = (result << 1) | bit_get(br);
   }
