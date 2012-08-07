@@ -37,18 +37,29 @@ static inline unsigned char bit_get(struct BitReader *br) {
 
 static inline uint64_t bits_get(struct BitReader *br, int bits) {
   uint64_t result = 0;
-  if(bits == 32 && br->offset % 8 == 0 && br->offset <= (br->size - 4)*8) {
+  if(br->offset + bits >= br->size*8) return 0;
+  
+  if(bits <= 8 && br->offset & 0x7) {
+    while(bits) {
+      result = (result << 1) | bit_get(br);
+      bits--;
+    }
+    return result;
+  }
+  
+  if(bits == 32 && br->offset % 8 == 0) {
     result = ntohl(*(uint32_t *)(&br->bytes[br->offset / 8]));
     br->offset += 32;
     return result;
   }
-  for(; bits > 0;) {
-    while(bits >= 8 && br->offset % 8 == 0 && br->offset <= (br->size - 1)*8) {
+
+  while(bits) {
+    while(bits >= 8 && !(br->offset & 0x7)) {
       bits -= 8;
-      result = (result << 8) | br->bytes[br->offset / 8];
+      result = (result << 8) | br->bytes[br->offset >> 3];
       br->offset += 8;
     }
-    if(bits > 0) {
+    if(bits) {
       result = (result << 1) | bit_get(br);
       bits--;
     }
@@ -75,7 +86,7 @@ static inline uint64_t leb128_decode_unsigned(struct BitReader *br) {
   int move_on = 1;
   while(move_on) {
     move_on = bit_get(br);
-    uint64_t chunk = bits_get(br, 7); 
+    uint64_t chunk = bits_get(br, 7);
     result |= (chunk << shift);
     // fprintf(stderr, "ULeb: %d, %llu, %llu\r\n", move_on, chunk, result);
     shift += 7;
