@@ -9,6 +9,8 @@
 -export([open/2, read_file/1, file_info/2, append/2, close/1]).
 -export([foldl/3]).
 
+-export([init_with_opts/1, read_packet_from_buffer/1]).
+
 -define(STOCKDB_OPTIONS, [
     {version, 1},
     {stock, undefined},
@@ -50,6 +52,7 @@ parse_opts([], State) -> State;
 ?PARSEOPT(depth);
 ?PARSEOPT(scale);
 ?PARSEOPT(chunk_size);
+?PARSEOPT(buffer);
 parse_opts([Unknown|MoreOpts], State) ->
   ?D({unknown_option, Unknown}),
   parse_opts(MoreOpts, State).
@@ -63,6 +66,9 @@ is_stockdb_option(_) -> false.
 utcdate() ->
   {Date, _Time} = calendar:universal_time(),
   Date.
+
+init_with_opts(Opts) ->
+  parse_opts(Opts, #dbstate{}).
 
 
 open(FileName, Options) ->
@@ -505,8 +511,8 @@ split_bidask([Bid, Ask], _Depth) ->
 
 packet_from_mdentry(Timestamp, BidAsk, #dbstate{depth = Depth, scale = Scale}) ->
   {Bid, Ask} = split_bidask(BidAsk, Depth),
-  SBid = apply_scale(Bid, 1/Scale),
-  SAsk = apply_scale(Ask, 1/Scale),
+  SBid = if is_number(Scale) -> apply_scale(Bid, 1/Scale); true -> Bid end,
+  SAsk = if is_number(Scale) -> apply_scale(Ask, 1/Scale); true -> Ask end,
   {md, Timestamp, SBid, SAsk}.
 
 apply_scale(PVList, Scale) when is_integer(Scale) ->
