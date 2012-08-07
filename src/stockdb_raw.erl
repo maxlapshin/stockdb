@@ -479,23 +479,23 @@ read_buffered_events(#dbstate{} = State, RevEvents) ->
       {parse_error, State, lists:reverse(RevEvents)}
   end.
 
-read_packet_from_buffer(#dbstate{buffer = Buffer} = State) ->
+read_packet_from_buffer(#dbstate{buffer = Buffer, depth = Depth, last_bidask = LastBidAsk, last_timestamp = LastTimestamp, scale = Scale} = State) ->
   case stockdb_format:packet_type(Buffer) of
     full_md ->
-      {Timestamp, BidAsk, Tail} = stockdb_format:decode_full_md(Buffer, State#dbstate.depth),
+      {Timestamp, BidAsk, Tail} = stockdb_format:decode_full_md(Buffer, Depth),
 
       {packet_from_mdentry(Timestamp, BidAsk, State),
         State#dbstate{last_timestamp = Timestamp, last_bidask = BidAsk, buffer = Tail, next_md_full = false}};
     delta_md ->
-      {DTimestamp, DBidAsk, Tail} = stockdb_format:decode_delta_md(Buffer, State#dbstate.depth),
-      BidAsk = bidask_delta_apply(State#dbstate.last_bidask, DBidAsk),
-      Timestamp = State#dbstate.last_timestamp + DTimestamp,
+      {DTimestamp, DBidAsk, Tail} = stockdb_format:decode_delta_md(Buffer, Depth),
+      BidAsk = bidask_delta_apply(LastBidAsk, DBidAsk),
+      Timestamp = LastTimestamp + DTimestamp,
 
       {packet_from_mdentry(Timestamp, BidAsk, State),
         State#dbstate{last_timestamp = Timestamp, last_bidask = BidAsk, buffer = Tail}};
     trade ->
       {Timestamp, Price, Volume, Tail} = stockdb_format:decode_trade(Buffer),
-      {{trade, Timestamp, Price/State#dbstate.scale, Volume},
+      {{trade, Timestamp, Price/Scale, Volume},
         State#dbstate{last_timestamp = Timestamp, buffer = Tail}}
   end.
 
