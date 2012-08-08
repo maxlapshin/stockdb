@@ -228,87 +228,50 @@ read_file(FileName) ->
 
 % Foldl: low-memory fold over entries
 foldl(Fun, Acc0, FileName) ->
-  {ok, State0} = open(FileName, [read, binary]),
-  File = State0#dbstate.file,
-  {ok, FileSize} = file:position(File, eof),
-
-  ChunkROffsets = [Offset || {_Number, Offset} <- nonzero_chunks(State0)],
-
-  % Get start of data and list of chunk ends
-  % Note: this will always work, even if there are no chunks
-  [FirstROffset|ChunkEnds] = ChunkROffsets ++ [FileSize],
-
-  % Get chunk sizes for easy read
-  {ChunkSizes, _} = lists:mapfoldl(fun(Offset, PrevOffset) ->
-        Size = Offset - PrevOffset,
-        {Size, Offset}
-    end, FirstROffset, ChunkEnds),
-
-  % Go to first chunk start
-  file:position(File, State0#dbstate.chunk_map_offset + FirstROffset),
-
-  % Fold over chunks
-  FoldResult = lists:foldl(fun(ChunkSize, AccIn) ->
-        {ok, Buffer} = file:read(File, ChunkSize),
-        % We don't need fresh state at chunk start, so drop modified one
-        {Events, _State1} = read_buffered_events(State0#dbstate{buffer = Buffer}),
-        % Do partial foldl on this chunk
-        _AccOut = lists:foldl(Fun, AccIn, Events)
-    end, Acc0, ChunkSizes),
-
-  close(State0),
-  FoldResult.
+  foldl_range(Fun, Acc0, FileName, {undefined, undefined}).
 
 % foldl_range: fold over entries in specified time range
 foldl_range(Fun, Acc0, FileName, {Start, End}) ->
   {ok, State0} = open(FileName, [read, binary]),
-  ChunkSize = State0#dbstate.chunk_size,
-  ChunkMapOffset = State0#dbstate.chunk_map_offset,
-
-  MinChunkStart = case Start of
-    undefined -> 0;
-    Timestamp when is_integer(Timestamp) ->
-      Timestamp - timer:?CHUNKUNITS(ChunkSize)
+  State1 = seek_utc(State0, Start),
+  FoldResult = case End of
+    undefined ->
+      do_foldl_full(Fun, Acc0, State1);
+    _ ->
+      do_foldl_until(Fun, Acc0, State1, End)
   end,
-
-  File = State0#dbstate.file,
-  {ok, FileSize} = file:position(File, eof),
-
-  State1 = read_chunk_map(State0),
-  ChunkMap = State1#dbstate.chunk_map,
-  [FirstChunk|RestChunks] = ChunkMap ++ [{undefined, undefined, FileSize}],
-
-  {Offsets_Sizes, _} = lists:mapfoldl(fun
-      ({NextN, NextT, NextO}, {_CurrN, CurrT, CurrO}) ->
-        ReadSize = case timestamp_in_range(CurrT, {MinChunkStart, End}) of
-          true -> NextO - CurrO;
-          false -> 0
-        end,
-        {{ChunkMapOffset + CurrO, ReadSize}, {NextN, NextT, NextO}}
-    end, FirstChunk, RestChunks),
-
-  FoldResult = lists:foldl(fun
-      ({_Offset, 0}, AccIn) ->
-        % Chunk out of range
-        AccIn;
-      ({Offset, Size}, AccIn) ->
-        {ok, Buffer} = file:pread(File, Offset, Size),
-        % We don't need fresh state at chunk start, so drop modified one
-        {Events, _State} = read_buffered_events(State1#dbstate{buffer = Buffer}),
-        % Do partial foldl on this chunk
-        timestamp_filter_foldl(Fun, AccIn, Events, {Start, End})
-    end, Acc0, Offsets_Sizes),
-
   close(State1),
   FoldResult.
 
-timestamp_filter_foldl(Fun, AccIn, Events, Range) ->
-  lists:foldl(fun(Event, Acc) ->
-        case timestamp_in_range(packet_timestamp(Event), Range) of
-          true -> Fun(Event, Acc);
-          false -> Acc
-        end
-    end, AccIn, Events).
+do_foldl_full(Fun, AccIn, State) ->
+  {Event, NextState} = read_event(State),
+  case Event of
+    eof ->
+      % Finish folding -- no more events
+      AccIn;
+    _event ->
+      % Iterate
+      AccOut = Fun(Event, AccIn),
+      do_foldl_full(Fun, AccOut, NextState)
+  end.
+
+do_foldl_until(Fun, AccIn, State, End) ->
+  {Event, NextState} = read_event(State),
+  case Event of
+    eof ->
+      % Finish folding -- no more events
+      AccIn;
+    _event ->
+      case packet_timestamp(Event) of
+        Large when Large > End ->
+          % end of given interval
+          AccIn;
+        _small ->
+          % Iterate
+          AccOut = Fun(Event, AccIn),
+          do_foldl_until(Fun, AccOut, NextState, End)
+      end
+  end.
 
 file_info(FileName, Fields) ->
   {ok, File} = file:open(FileName, [read, binary]),
@@ -661,14 +624,3 @@ scale_md({md, Timestamp, Bid, Ask}, Scale) ->
 
 packet_timestamp({md, Timestamp, _Bid, _Ask}) -> Timestamp;
 packet_timestamp({trade, Timestamp, _Price, _Volume}) -> Timestamp.
-
-timestamp_in_range(T, {Start, End}) ->
-  timestamp_after(T, Start) andalso timestamp_before(T, End).
-
-timestamp_after(_T, undefined) -> true;
-timestamp_after(T, Start) when is_number(Start) ->
-  T >= Start.
-
-timestamp_before(_T, undefined) -> true;
-timestamp_before(T, End) when is_number(End) ->
-  T =< End.
