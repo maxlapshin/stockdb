@@ -3,19 +3,11 @@
 %%% with later fast read and fast seek
 -module(stockdb).
 -author({"Danil Zagoskin", z@gosk.in}).
+-include("../include/stockdb.hrl").
 
 -export([open/2, append/2, close/1]).
 -export([foldl/4, read_event/1]).
 -export([test/0]).
-
--type stockdb() :: any().
--type price() :: float().
--type volume() :: non_neg_integer().
--type quotes() :: [{price(), volume()}].
--type timestamp() :: non_neg_integer().
--type market_data() :: {md, timestamp(), quotes(), quotes()}.
--type trade() :: {trade, timestamp(), price(), volume()}.
--type stock() :: atom().
 
 
 %-spec open(Path::nonempty_string()) -> {ok, pid()} | {error, Reason::term()}.
