@@ -61,7 +61,8 @@ write_append_test(Options) ->
     end, S2, chunk_110_content_2() ++ chunk_112_content()),
   ok = stockdb_raw:close(S3),
 
-  {ok, S4} = stockdb_raw:open(File, Options ++ [read]),
+  {ok, S4_} = stockdb_raw:open(File, Options ++ [read]),
+  {ok, S4} = stockdb_raw:restore_state(S4_),
   ensure_states_equal(S3, S4),
   ok = stockdb_raw:close(S4),
 
@@ -82,7 +83,8 @@ db_repair_test() ->
   ok = file:truncate(F),
   ok = file:close(F),
 
-  ?assertThrow({truncate_failed, _}, stockdb_raw:open(File, [read])),
+  {ok, S1} = stockdb_raw:open(File, [read]),
+  ?assertThrow({truncate_failed, _}, stockdb_raw:restore_state(S1)),
 
   append_events_to_file(File, chunk_110_content_2() ++ chunk_112_content()),
 
@@ -208,7 +210,7 @@ append_events_to_file(File, Events) ->
   ok = stockdb_raw:close(S1).
 
 ensure_states_equal(State1, State2) ->
-  Elements = lists:seq(1, size(State1)) -- [3, 4],
+  Elements = lists:seq(1, size(State1)) -- [3, 4, 5],
   lists:foreach(fun(N) ->
         % io:format("Comparing element ~w~n", [N]),
         ?assertEqual(element(N, State1), element(N, State2))
