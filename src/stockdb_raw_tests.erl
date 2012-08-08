@@ -75,14 +75,7 @@ write_append_test(Options) ->
 
 db_repair_test() ->
   File = ?TEMPFILE("db-repair-test.temp"),
-  ok = filelib:ensure_dir(File),
-
-  {ok, S0} = stockdb_raw:open(File, [write, {stock, 'TEST'}, {date, {2012,7,25}}, {depth, 3}, {scale, 200}, {chunk_size, 300}]),
-  S1 = lists:foldl(fun(Event, State) ->
-        {ok, NextState} = stockdb_raw:append(Event, State),
-        NextState
-    end, S0, chunk_109_content() ++ chunk_110_content_1()),
-  ok = stockdb_raw:close(S1),
+  write_events_to_file(File, chunk_109_content() ++ chunk_110_content_1()),
 
   {ok, F} = file:open(File, [read, write]),
   {ok, _} = file:position(F, {eof, -1}),
@@ -91,12 +84,7 @@ db_repair_test() ->
 
   ?assertThrow({truncate_failed, _}, stockdb_raw:open(File, [read])),
 
-  {ok, S2} = stockdb_raw:open(File, [append]),
-  S3 = lists:foldl(fun(Event, State) ->
-        {ok, NextState} = stockdb_raw:append(Event, State),
-        NextState
-    end, S2, chunk_110_content_2() ++ chunk_112_content()),
-  ok = stockdb_raw:close(S3),
+  append_events_to_file(File, chunk_110_content_2() ++ chunk_112_content()),
 
   {ok, FileEvents} = stockdb_raw:read_file(File),
   lists:zipwith(fun(Expected, Read) ->
@@ -111,14 +99,7 @@ db_repair_test() ->
 
 foldl_test() ->
   File = ?TEMPFILE("foldl-test.temp"),
-  ok = filelib:ensure_dir(File),
-
-  {ok, S0} = stockdb_raw:open(File, [write, {stock, 'TEST'}, {date, {2012,7,25}}, {depth, 3}, {scale, 200}, {chunk_size, 300}]),
-  S1 = lists:foldl(fun(Event, State) ->
-        {ok, NextState} = stockdb_raw:append(Event, State),
-        NextState
-    end, S0, full_content()),
-  ok = stockdb_raw:close(S1),
+  write_events_to_file(File, full_content()),
 
   % Meaningless functions. We know that events are stored correctly,
   % so just test folding
@@ -138,6 +119,36 @@ foldl_test() ->
     stockdb_raw:foldl(FoldFun2, 720, File)),
 
   ok = file:delete(File).
+
+foldl_range_test() ->
+  File = ?TEMPFILE("foldl-range-test.temp"),
+  write_events_to_file(File, full_content()),
+
+  % Meaningless functions. We know that events are stored correctly,
+  % so just test folding
+  CountFun = fun(_, Count) -> Count+1 end,
+
+  FoldFun2 = fun
+    ({md, _UTC, Bid, Ask}, AccIn) ->
+      AccIn + length(Bid) + length(Ask);
+    ({trade, _UTC, Price, _Volume}, AccIn) ->
+      AccIn - erlang:round(Price)
+  end,
+
+  Range1 = {undefined, 1343207500000},
+  Events1 = chunk_109_content() ++ chunk_110_content_1(),
+
+  Range2 = {1343207500000, undefined},
+  Events2 = chunk_110_content_2() ++ chunk_112_content(),
+
+  ?assertEqual(lists:foldl(CountFun, 0, Events1),
+    stockdb_raw:foldl_range(CountFun, 0, File, Range1)),
+
+  ?assertEqual(lists:foldl(FoldFun2, 720, Events2),
+    stockdb_raw:foldl_range(FoldFun2, 720, File, Range2)),
+
+  ok = file:delete(File).
+
 
 chunk_109_content() ->
   [
@@ -179,6 +190,22 @@ chunk_112_content() ->
 full_content() ->
   chunk_109_content() ++ chunk_110_content_1() ++ chunk_110_content_2() ++ chunk_112_content().
 
+write_events_to_file(File, Events) ->
+  ok = filelib:ensure_dir(File),
+  {ok, S0} = stockdb_raw:open(File, [write, {stock, 'TEST'}, {date, {2012,7,25}}, {depth, 3}, {scale, 200}, {chunk_size, 300}]),
+  S1 = lists:foldl(fun(Event, State) ->
+        {ok, NextState} = stockdb_raw:append(Event, State),
+        NextState
+    end, S0, Events),
+  ok = stockdb_raw:close(S1).
+
+append_events_to_file(File, Events) ->
+  {ok, S0} = stockdb_raw:open(File, [append, {stock, 'TEST'}, {date, {2012,7,25}}, {depth, 3}, {scale, 200}, {chunk_size, 300}]),
+  S1 = lists:foldl(fun(Event, State) ->
+        {ok, NextState} = stockdb_raw:append(Event, State),
+        NextState
+    end, S0, Events),
+  ok = stockdb_raw:close(S1).
 
 ensure_states_equal(State1, State2) ->
   Elements = lists:seq(1, size(State1)) -- [3, 4],
