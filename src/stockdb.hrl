@@ -2,6 +2,7 @@
 -record(dbstate, {
     version,
     file,
+    path,
     mode :: read|append,
     buffer,
     buffer_end,
@@ -10,6 +11,7 @@
     depth,
     scale,
     chunk_size,
+    last_md,
     last_timestamp = 0,
     last_bidask,
     next_chunk_time = 0,

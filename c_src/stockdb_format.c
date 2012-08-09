@@ -122,14 +122,18 @@ static inline int64_t decode_delta(struct BitReader *br) {
   }
 }
 
+static ERL_NIF_TERM
+make_error(ErlNifEnv* env, const char *err) {
+  return enif_make_tuple2(env, enif_make_atom(env, "error"), enif_make_atom(env, err));
+}
 
 static ERL_NIF_TERM
 read_one_row(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
 {
   ErlNifBinary bin;
   unsigned int depth;
-  if(!enif_inspect_binary(env, argv[0], &bin)) return enif_make_badarg(env);
-  if(!enif_get_uint(env, argv[1], &depth)) return enif_make_badarg(env);
+  if(!enif_inspect_binary(env, argv[0], &bin)) return make_error(env, "need_binary");
+  if(!enif_get_uint(env, argv[1], &depth)) return make_error(env, "need_depth");
 
   unsigned shift = bin.size;
 
@@ -153,24 +157,42 @@ read_one_row(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
   
   ERL_NIF_TERM tag;
   
+  if(!bin.size) return make_error(env, "empty");
+  
   if(bit_get(&br)) {  // Decode full coded string
     if(bit_get(&br)) { // this means trade encoded
-      return enif_make_badarg(env);
+      if(bin.size < 8 + 2*4) return make_error(env, "more");
+      
+      tag = enif_make_atom(env, "trade");
+      timestamp = bits_get(&br, 62);
+      
+      ERL_NIF_TERM price = enif_make_int(env, (int32_t)bits_get(&br, 32));
+      ERL_NIF_TERM volume = enif_make_uint(env, (uint32_t)bits_get(&br, 32));
+      return enif_make_tuple3(env,
+        enif_make_atom(env, "ok"),
+        enif_make_tuple4(env, tag, enif_make_uint64(env, timestamp), price, volume),
+        enif_make_int(env, 8+2*4)
+        );
     }
+    if(bin.size < 8 + 2*2*depth*4) return make_error(env, "more");
     
     // Here is decoding of simply coded full string
     tag = enif_make_atom(env, "md");
     timestamp = bits_get(&br, 62);
     for(i = 0; i < depth; i++) {
+      int32_t p = (int32_t)bits_get(&br, 32);
+      uint32_t v = (uint32_t)bits_get(&br, 32);
       bid[i] = enif_make_tuple2(env,
-        enif_make_int(env, (int32_t)bits_get(&br, 32)),
-        enif_make_uint(env, (uint32_t)bits_get(&br, 32))
+        enif_make_int(env, p),
+        enif_make_uint(env, v)
         );
     }
     for(i = 0; i < depth; i++) {
+      int32_t p = (int32_t)bits_get(&br, 32);
+      uint32_t v = (uint32_t)bits_get(&br, 32);
       ask[i] = enif_make_tuple2(env,
-        enif_make_int(env, (int32_t)bits_get(&br, 32)),
-        enif_make_uint(env, (uint32_t)bits_get(&br, 32))
+        enif_make_int(env, p),
+        enif_make_uint(env, v)
         );
     }
   } else {
@@ -184,8 +206,8 @@ read_one_row(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
       unpacking_delta = 1;
       tag = enif_make_atom(env, "md");
       int arity = 0;
-      if(!enif_get_tuple(env, argv[2], &arity, &prev)) return enif_make_badarg(env);
-      if(arity != 4) return enif_make_badarg(env);
+      if(!enif_get_tuple(env, argv[2], &arity, &prev)) return make_error(env, "need_prev");
+      if(arity != 4) return make_error(env, "need_prev_arity_4");
     }
     
     timestamp = leb128_decode_unsigned(&br);
@@ -200,7 +222,7 @@ read_one_row(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
     
     if(unpacking_delta) {
       ErlNifUInt64 prev_ts;
-      if(!enif_get_uint64(env, prev[1], &prev_ts)) return enif_make_badarg(env);
+      if(!enif_get_uint64(env, prev[1], &prev_ts)) return make_error(env, "need_prev_ts");
       timestamp += prev_ts;
       
       ERL_NIF_TERM head, tail;
@@ -208,31 +230,30 @@ read_one_row(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
       // add previous values to bid
       tail = prev[2];
       for(i = 0; i < depth; i++) {
-        if(!enif_get_list_cell(env, tail, &head, &tail)) return enif_make_badarg(env);
+        if(!enif_get_list_cell(env, tail, &head, &tail)) return make_error(env, "need_more_bid_in_prev");
         int ar = 0;
         const ERL_NIF_TERM *price_vol;
-        if(!enif_get_tuple(env, head, &ar, &price_vol)) return enif_make_badarg(env);
-        if(ar != 2) return enif_make_badarg(env);
+        if(!enif_get_tuple(env, head, &ar, &price_vol)) return make_error(env, "need_price_vol_in_prev_bid");
+        if(ar != 2) return make_error(env, "need_price_vol_arity_2_in_prev_bid");
         
         int price, volume;
-        if(!enif_get_int(env, price_vol[0], &price)) return enif_make_badarg(env);
-        if(!enif_get_int(env, price_vol[1], &volume)) return enif_make_badarg(env);
+        if(!enif_get_int(env, price_vol[0], &price)) return make_error(env, "need_price_int_in_prev_bid");
+        if(!enif_get_int(env, price_vol[1], &volume)) return make_error(env, "need_vol_int_in_prev_bid");
         bid_prices[i] += price;
         bid_sizes[i] += volume;
       }
-
       // and add previous values to ask
       tail = prev[3];
       for(i = 0; i < depth; i++) {
-        if(!enif_get_list_cell(env, tail, &head, &tail)) return enif_make_badarg(env);
+        if(!enif_get_list_cell(env, tail, &head, &tail)) return make_error(env, "need_more_ask_in_prev");
         int ar = 0;
         const ERL_NIF_TERM *price_vol;
-        if(!enif_get_tuple(env, head, &ar, &price_vol)) return enif_make_badarg(env);
-        if(ar != 2) return enif_make_badarg(env);
+        if(!enif_get_tuple(env, head, &ar, &price_vol)) return make_error(env, "need_price_vol_in_prev_ask");
+        if(ar != 2) return make_error(env, "need_price_vol_arity_2_in_prev_ask");
         
         int price, volume;
-        if(!enif_get_int(env, price_vol[0], &price)) return enif_make_badarg(env);
-        if(!enif_get_int(env, price_vol[1], &volume)) return enif_make_badarg(env);
+        if(!enif_get_int(env, price_vol[0], &price)) return make_error(env, "need_price_int_in_prev_ask");
+        if(!enif_get_int(env, price_vol[1], &volume)) return make_error(env, "need_vol_int_in_prev_ask");
         ask_prices[i] += price;
         ask_sizes[i] += volume;
       }

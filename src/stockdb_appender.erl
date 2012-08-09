@@ -38,6 +38,7 @@ create_new_db(Path, Opts) ->
     version = ?STOCKDB_VERSION,
     stock = Stock,
     date = Date,
+    path = Path,
     depth = proplists:get_value(depth, Opts, 1),
     scale = proplists:get_value(scale, Opts, 100),
     chunk_size = proplists:get_value(chunk_size, Opts, 5*60)
@@ -53,52 +54,7 @@ create_new_db(Path, Opts) ->
 
 
 open_existing_db(Path, _Opts) ->
-  {StateChunkRead, BadChunks} = stockdb_reader:open_existing_db(Path, [binary,write,read,raw]),
-  case BadChunks of
-    [] -> 
-      ok;
-    _ -> 
-      error_logger:error_msg("Broken chunks in database ~s: ~p, repairing~n", [Path, BadChunks])
-      % FIXME: make real repair
-      % write_chunk_offset(Number, 0, State),
-  end,
-
-  StateReady = fast_forward(StateChunkRead),
-  {ok, StateReady}.
-
-
-fast_forward(#dbstate{chunk_map = []} = State) ->
-  State;
-fast_forward(#dbstate{file = File, chunk_size = ChunkSize, chunk_map_offset = ChunkMapOffset, chunk_map = ChunkMap} = State) ->
-  {N, LastChunkTimestamp, LastChunkOffset} = lists:last(ChunkMap),
-  AbsOffset = ChunkMapOffset + LastChunkOffset,
-  {ok, FileSize} = file:position(File, eof),
-
-  {ok, Buffer} = file:pread(File, AbsOffset, FileSize - AbsOffset),
-  LastState = case stockdb_raw:read_buffered_events(State#dbstate{buffer = Buffer, buffer_end = FileSize - ChunkMapOffset, next_md_full = true}) of
-    {_Packets, OKState} ->
-      OKState;
-
-    {parse_error, FailState, _Packets} ->
-      % Try to truncate erroneous tail
-      BufferLen = erlang:byte_size(Buffer),
-      ErrorLen = erlang:byte_size(FailState#dbstate.buffer),
-      ?D({truncating_last_bytes, ErrorLen}),
-      % Calculate position relative to chunk start
-      GoodBufLen = BufferLen - ErrorLen,
-      % Set position
-      {ok, _} = file:position(File, AbsOffset + GoodBufLen),
-      % Truncate. It will fail on read-only file, but it is OK
-      ok == file:truncate(File) orelse erlang:throw({truncate_failed, possible_read_only}),
-      FailState#dbstate{buffer = undefined}
-  end,
-
-  Daystart = stockdb_raw:utc_to_daystart(LastChunkTimestamp),
-  ChunkSizeMs = timer:seconds(ChunkSize),
-
-  LastState#dbstate{
-    daystart = Daystart,
-    next_chunk_time = Daystart + ChunkSizeMs * (N + 1)}.
+  stockdb_reader:open_existing_db(Path, [binary,write,read,raw]).
 
 
 append(_Event, #dbstate{mode = Mode}) when Mode =/= append ->
@@ -183,7 +139,7 @@ write_chunk_offset(ChunkNumber, ChunkOffset, #dbstate{file = File, chunk_map_off
   ok = file:pwrite(File, ChunkMapOffset + ChunkNumber*ByteOffsetLen, <<ChunkOffset:?OFFSETLEN/integer>>).
 
 
-append_full_md({md, Timestamp, Bid, Ask}, #dbstate{depth = Depth, file = File} = State) ->
+append_full_md({md, Timestamp, Bid, Ask} = MD, #dbstate{depth = Depth, file = File} = State) ->
   BidAsk = [setdepth(Bid, Depth), setdepth(Ask, Depth)],
   Data = stockdb_format:encode_full_md(Timestamp, BidAsk),
   {ok, _EOF} = file:position(File, eof),
@@ -191,16 +147,18 @@ append_full_md({md, Timestamp, Bid, Ask}, #dbstate{depth = Depth, file = File} =
   {ok, State#dbstate{
       last_timestamp = Timestamp,
       last_bidask = BidAsk,
+      last_md = MD,
       next_md_full = false}
   }.
 
-append_delta_md({md, Timestamp, Bid, Ask}, #dbstate{depth = Depth, file = File, last_timestamp = LastTS, last_bidask = LastBA} = State) ->
+append_delta_md({md, Timestamp, Bid, Ask} = MD, #dbstate{depth = Depth, file = File, last_timestamp = LastTS, last_bidask = LastBA} = State) ->
   BidAsk = [setdepth(Bid, Depth), setdepth(Ask, Depth)],
   BidAskDelta = bidask_delta(LastBA, BidAsk),
   Data = stockdb_format:encode_delta_md(Timestamp - LastTS, BidAskDelta),
   {ok, _EOF} = file:position(File, eof),
   ok = file:write(File, Data),
   {ok, State#dbstate{
+    last_md = MD,
       last_timestamp = Timestamp,
       last_bidask = BidAsk}
   }.

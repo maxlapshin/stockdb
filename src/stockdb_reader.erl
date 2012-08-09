@@ -7,18 +7,22 @@
 -include("log.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include("stockdb.hrl").
+-include("../include/stockdb.hrl").
 
 % Open DB, read its contents and close,
 % returning self-sufficient state
 -export([open/1, open_existing_db/2]).
+-export([read_file/1]).
 
 -export([file_info/2]).
 
 open(Path) ->
   case filelib:is_regular(Path) of
     true ->
-      {State0, _} = open_existing_db(Path, [read, binary, raw]),
-      close(State0);
+      {ok, State1} = open_existing_db(Path, [read, binary, raw]),
+      State2 = #dbstate{file = F} = buffer_data(State1),
+      file:close(F),
+      {ok, State2#dbstate{file = undefined}};
     false ->
       {error, nofile}
   end.
@@ -46,12 +50,39 @@ open_existing_db(Path, Modes) ->
     scale = Scale,
     chunk_size = ChunkSize,
     file = File,
+    path = Path,
     chunk_map_offset = ChunkMapOffset
   },
 
-  StateBuffered = buffer_data(State0),
-  {_StateChunkRead, _BadChunks} = read_chunk_map(StateBuffered).
+  State1 = read_chunk_map(State0),
+  ValidatedState = stockdb_validator:validate(State1),
+  {ok, ValidatedState}.
 
+
+
+read_file(Path) ->
+  case open(Path) of
+    {ok, #dbstate{buffer = Buffer, depth = Depth, chunk_map = [{_, _, Offset}|_]}} ->
+      <<_:Offset/binary, Data/binary>> = Buffer,
+      {ok, read_all_events(Data, Depth, undefined)};
+    {ok, #dbstate{chunk_map = []}} ->
+      {ok, []};
+    Else ->
+      Else
+  end.
+
+read_all_events(<<>>, _Depth, _PrevMD) ->
+  [];
+
+read_all_events(Data, Depth, PrevMD) ->
+  case stockdb_format:read_one_row(Data, Depth, PrevMD) of
+    {ok, #md{} = MD, Skip} ->
+      <<_:Skip/binary, Rest/binary>> = Data,
+      [MD|read_all_events(Rest, Depth, MD)];
+    {ok, #trade{} = Trade, Skip} ->
+      <<_:Skip/binary, Rest/binary>> = Data,
+      [Trade|read_all_events(Rest, Depth, PrevMD)]
+  end.
 
 %% @doc read data from chunk map start to EOF
 buffer_data(#dbstate{file = File, chunk_map_offset = ChunkMapOffset} = State) ->
@@ -139,35 +170,23 @@ parse_header_line(HeaderLine, nonewline) ->
 %% Result is saved to state
 read_chunk_map(#dbstate{} = State) ->
   NonZeroChunks = nonzero_chunks(State),
-  ChunkMap = lists:map(fun({Number, Offset}) ->
-    try
-      Timestamp = read_timestamp_at_offset(Offset, State),
-      {Number, Timestamp, Offset}
-    catch
-      error:Reason ->
-        ?D({error_reading_timestamp, Offset, Reason}),
-        % FIXME: if opened for reading, use error_logger to inform and read, what is possible
-        % In other case, validate file
-        % write_chunk_offset(Number, 0, State),
-        {Number, 0, 0}
-    end
-  end, NonZeroChunks),
-  {GoodChunkMap, BadChunks} = lists:partition(fun({_Number, Timestamp, Offset}) ->
-    Timestamp * 1 > 0 andalso Offset * 1 > 0
-  end, ChunkMap),
-  {State#dbstate{chunk_map = GoodChunkMap}, BadChunks}.
+  ChunkMap = [{Number, read_timestamp_at_offset(Offset, State), Offset} || {Number, Offset} <- NonZeroChunks],
+  State#dbstate{chunk_map = ChunkMap}.
 
 %% @doc Read raw chunk map and return {Number, Offset} list for chunks containing data
-nonzero_chunks(#dbstate{buffer = Buffer, chunk_size = ChunkSize}) ->
+nonzero_chunks(#dbstate{file = File, chunk_size = ChunkSize, chunk_map_offset = ChunkMapOffset}) ->
   ChunkCount = stockdb_raw:number_of_chunks(ChunkSize),
-  {Chunks, _} = lists:mapfoldl(fun(Number, Bin) ->
-        <<Offset:?OFFSETLEN/integer, Tail/binary>> = Bin,
-        Chunk = {Number, Offset},
-        {Chunk, Tail}
-    end, Buffer, lists:seq(0, ChunkCount - 1)),
-  [{N,Offset} || {N,Offset} <- Chunks, Offset =/= 0].
+  {ok, ChunkMap} = file:pread(File, ChunkMapOffset, ChunkCount*?OFFSETLEN div 8),
+  Chunks1 = lists:zip(lists:seq(0,ChunkCount - 1), [Offset || <<Offset:?OFFSETLEN>> <= ChunkMap]),
+  [{N,Offset} || {N,Offset} <- Chunks1, Offset =/= 0].
+
+  
 
 %% @doc Read timestamp at specified offset
+read_timestamp_at_offset(Offset, #dbstate{buffer = undefined, file = File, chunk_map_offset = ChunkMapOffset}) ->
+  {ok, <<1:1, _:1/integer, Timestamp:62/integer>>} = file:pread(File, ChunkMapOffset + Offset, 8),
+  Timestamp;
+
 read_timestamp_at_offset(Offset, #dbstate{buffer = Buffer}) ->
-  <<_:Offset/binary, SubBuf/binary>> = Buffer,
-  stockdb_format:decode_timestamp(SubBuf).
+  <<_:Offset/binary, 1:1, _:1/integer, Timestamp:62/integer, _/binary>> = Buffer,
+  Timestamp.

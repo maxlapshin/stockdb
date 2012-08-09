@@ -10,7 +10,6 @@
 -export([read_one_row/2, read_one_row/3]).
 -export([encode_full_md/2, encode_delta_md/2]).
 -export([encode_trade/3, decode_trade/1]).
--export([decode_timestamp/1]).
 -export([packet_type/1, decode_full_md/2, decode_delta_md/2]).
 -export([format_header_value/2, parse_header_value/2]).
 
@@ -69,9 +68,6 @@ read_one_row(_Bin, _Depth, _Previous) ->
 packet_type(<<1:1, 0:1, _Tail/bitstring>>) -> full_md;
 packet_type(<<1:1, 1:1, _Tail/bitstring>>) -> trade;
 packet_type(<<0:1, _Tail/bitstring>>) -> delta_md.
-
-decode_timestamp(<<1:1, _:1/integer, Timestamp:62/integer, _Tail/binary>>) ->
-  Timestamp.
 
 
 

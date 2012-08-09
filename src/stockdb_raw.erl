@@ -69,10 +69,6 @@ number_of_chunks(ChunkSize) ->
 
 
 
-utc_to_daystart(UTC) ->
-  DayLength = timer:hours(24),
-  DayTail = UTC rem DayLength,
-  UTC - DayTail.
 
 
  
