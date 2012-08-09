@@ -10,7 +10,7 @@
 -export([seek_utc/2, read_event/1, read_file/1, close/1]).
 -export([foldl/3, foldl_range/4]).
 
--export([init_with_opts/1, read_packet_from_buffer/1]).
+-export([init_with_opts/1, read_packet_from_buffer/1, read_buffered_events/1, utc_to_daystart/1]).
 -export([number_of_chunks/1]).
 
 -define(PARSEOPT(OptName),

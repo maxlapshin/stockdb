@@ -70,8 +70,10 @@ db_repair_test() ->
   ok = file:truncate(F),
   ok = file:close(F),
 
-  {ok, S1} = stockdb_raw:open(File, [read]),
-  ?assertThrow({truncate_failed, _}, stockdb_raw:restore_state(S1)),
+  {S1, BadChunks} = stockdb_reader:open_existing_db(File, [read,binary,raw]),
+  ?assertEqual([], BadChunks),
+  
+  ?assertEqual([], "Need to check last chunk, but we lost this function"),
 
   append_events_to_file(File, chunk_content('110_2') ++ chunk_content('112')),
 

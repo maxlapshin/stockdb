@@ -130,6 +130,7 @@ parse_header_line(HeaderLine, nonewline) ->
 %% @doc Read chunk map and validate corresponding timestamps.
 %% Result is saved to state
 read_chunk_map(#dbstate{} = State) ->
+  NonZeroChunks = nonzero_chunks(State),
   ChunkMap = lists:map(fun({Number, Offset}) ->
     try
       Timestamp = read_timestamp_at_offset(Offset, State),
@@ -142,7 +143,7 @@ read_chunk_map(#dbstate{} = State) ->
         % write_chunk_offset(Number, 0, State),
         {Number, 0, 0}
     end
-  end, nonzero_chunks(State)),
+  end, NonZeroChunks),
   {GoodChunkMap, BadChunks} = lists:partition(fun({_Number, Timestamp, Offset}) ->
     Timestamp * 1 > 0 andalso Offset * 1 > 0
   end, ChunkMap),
@@ -152,6 +153,7 @@ read_chunk_map(#dbstate{} = State) ->
 nonzero_chunks(#dbstate{file = File, chunk_size = ChunkSize, chunk_map_offset = ChunkMapOffset}) ->
   ChunkCount = stockdb_raw:number_of_chunks(ChunkSize),
   {ok, ChunkMap} = file:pread(File, ChunkMapOffset, ChunkCount*?OFFSETLEN div 8),
+  is_binary(ChunkMap) andalso size(ChunkMap) == ChunkCount*?OFFSETLEN div 8 orelse erlang:error(broken_database_file),
   Chunks1 = lists:zip(lists:seq(0,ChunkCount - 1), [Offset || <<Offset:?OFFSETLEN>> <= ChunkMap]),
   [{N,Offset} || {N,Offset} <- Chunks1, Offset =/= 0].
 
