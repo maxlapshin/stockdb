@@ -59,3 +59,29 @@ write_append_test() ->
     chunk_content('109') ++ chunk_content('110_1') ++ chunk_content('110_2') ++ chunk_content('112'),
     FileEvents),
   ok = file:delete(File).
+
+
+db_repair_test() ->
+  File = tempfile("db-repair-test.temp"),
+  write_events_to_file(File, chunk_content('109') ++ chunk_content('110_1')),
+
+  {ok, F} = file:open(File, [read, write]),
+  {ok, _} = file:position(F, {eof, -1}),
+  ok = file:truncate(F),
+  ok = file:close(F),
+
+  {ok, S1} = stockdb_raw:open(File, [read]),
+  ?assertThrow({truncate_failed, _}, stockdb_raw:restore_state(S1)),
+
+  append_events_to_file(File, chunk_content('110_2') ++ chunk_content('112')),
+
+  {ok, FileEvents} = stockdb_raw:read_file(File),
+  lists:zipwith(fun(Expected, Read) ->
+        ensure_packets_equal(Expected, Read)
+    end,
+    chunk_content('109') ++ chunk_content('110_1_t') ++ chunk_content('110_2') ++ chunk_content('112'),
+    FileEvents),
+
+  ok = file:delete(File).
+
+
