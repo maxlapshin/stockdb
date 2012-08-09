@@ -59,3 +59,31 @@ write_append_test() ->
     chunk_content('109') ++ chunk_content('110_1') ++ chunk_content('110_2') ++ chunk_content('112'),
     FileEvents),
   ok = file:delete(File).
+
+
+db_repair_test() ->
+  File = tempfile("db-repair-test.temp"),
+  write_events_to_file(File, chunk_content('109') ++ chunk_content('110_1')),
+
+  {ok, F} = file:open(File, [read, write]),
+  {ok, _} = file:position(F, {eof, -1}),
+  ok = file:truncate(F),
+  ok = file:close(F),
+
+  {S1, BadChunks} = stockdb_reader:open_existing_db(File, [read,binary,raw]),
+  ?assertEqual([], BadChunks),
+  
+  ?assertEqual([], "Need to check last chunk, but we lost this function"),
+
+  append_events_to_file(File, chunk_content('110_2') ++ chunk_content('112')),
+
+  {ok, FileEvents} = stockdb_raw:read_file(File),
+  lists:zipwith(fun(Expected, Read) ->
+        ensure_packets_equal(Expected, Read)
+    end,
+    chunk_content('109') ++ chunk_content('110_1_t') ++ chunk_content('110_2') ++ chunk_content('112'),
+    FileEvents),
+
+  ok = file:delete(File).
+
+

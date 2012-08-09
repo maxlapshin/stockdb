@@ -138,6 +138,7 @@ parse_header_line(HeaderLine, nonewline) ->
 %% @doc Read chunk map and validate corresponding timestamps.
 %% Result is saved to state
 read_chunk_map(#dbstate{} = State) ->
+  NonZeroChunks = nonzero_chunks(State),
   ChunkMap = lists:map(fun({Number, Offset}) ->
     try
       Timestamp = read_timestamp_at_offset(Offset, State),
@@ -150,7 +151,7 @@ read_chunk_map(#dbstate{} = State) ->
         % write_chunk_offset(Number, 0, State),
         {Number, 0, 0}
     end
-  end, nonzero_chunks(State)),
+  end, NonZeroChunks),
   {GoodChunkMap, BadChunks} = lists:partition(fun({_Number, Timestamp, Offset}) ->
     Timestamp * 1 > 0 andalso Offset * 1 > 0
   end, ChunkMap),
