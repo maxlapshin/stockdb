@@ -127,7 +127,8 @@ fast_forward(#dbstate{file = File, chunk_size = ChunkSize, chunk_map_offset = Ch
     next_chunk_time = Daystart + ChunkSizeMs * (N + 1)}.
 
 
-
+append(_Event, #dbstate{mode = Mode}) when Mode =/= append ->
+  {error, reopen_in_append_mode};
 
 append({trade, Timestamp, _ ,_} = Trade, #dbstate{next_chunk_time = NCT} = State) when Timestamp >= NCT ->
   append(Trade, start_chunk(Timestamp, State));
