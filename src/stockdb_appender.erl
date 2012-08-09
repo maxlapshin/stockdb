@@ -53,12 +53,12 @@ create_new_db(Path, Opts) ->
 
 
 open_existing_db(Path, _Opts) ->
-  {ok, File} = file:open(Path, [binary,write,raw]),
+  {ok, File} = file:open(Path, [binary,write,read,raw]),
   {ok, 0} = file:position(File, bof),
 
   {ok, SavedDBOpts, ChunkMapOffset} = stockdb_raw:read_header(File),
 
-  {version, Version} = lists:keyfind(version, SavedDBOpts),
+  {version, Version} = lists:keyfind(version, 1, SavedDBOpts),
   Version == ?STOCKDB_VERSION orelse erlang:error({need_to_migrate, Path}),
   {stock, Stock} = lists:keyfind(stock, 1, SavedDBOpts),
   {date, Date} = lists:keyfind(date, 1, SavedDBOpts),
