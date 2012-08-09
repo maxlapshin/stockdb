@@ -8,7 +8,7 @@
 #include <stdio.h>
 #include <unistd.h>
 #include <time.h>
-
+#include <arpa/inet.h>
 
 struct BitReader {
   unsigned char *bytes;
@@ -37,7 +37,7 @@ static inline unsigned char bit_get(struct BitReader *br) {
 
 static inline uint64_t bits_get(struct BitReader *br, int bits) {
   uint64_t result = 0;
-  if(br->offset + bits >= br->size*8) return 0;
+  if(br->offset + bits > br->size*8) return 0;
   
   if(bits <= 8 && br->offset & 0x7) {
     while(bits) {
@@ -145,19 +145,25 @@ read_one_row(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
   const ERL_NIF_TERM *prev;
 
   int32_t bid_prices[depth];
-  int32_t bid_sizes[depth];
+  uint32_t bid_sizes[depth];
   ERL_NIF_TERM bid[depth];
 
   int32_t ask_prices[depth];
-  int32_t ask_sizes[depth];
+  uint32_t ask_sizes[depth];
   ERL_NIF_TERM ask[depth];
   int i;
   
   int unpacking_delta = 0;
   
-  ERL_NIF_TERM tag;
+  ERL_NIF_TERM tag = enif_make_atom(env, "error");
   
   if(!bin.size) return make_error(env, "empty");
+  
+  
+  int scale = 0;
+  if(argc == 4) {
+    if(!enif_get_int(env, argv[3], &scale)) scale = 0;
+  }
   
   if(bit_get(&br)) {  // Decode full coded string
     if(bit_get(&br)) { // this means trade encoded
@@ -166,12 +172,14 @@ read_one_row(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
       tag = enif_make_atom(env, "trade");
       timestamp = bits_get(&br, 62);
       
-      ERL_NIF_TERM price = enif_make_int(env, (int32_t)bits_get(&br, 32));
+      int32_t p = (int32_t)bits_get(&br, 32);
+      ERL_NIF_TERM price = scale ? enif_make_double(env, p*1.0 / scale) : enif_make_int(env, p);
       ERL_NIF_TERM volume = enif_make_uint(env, (uint32_t)bits_get(&br, 32));
+      shift = 8 + 2*4;
       return enif_make_tuple3(env,
         enif_make_atom(env, "ok"),
         enif_make_tuple4(env, tag, enif_make_uint64(env, timestamp), price, volume),
-        enif_make_int(env, 8+2*4)
+        enif_make_sub_binary(env, argv[0], shift, bin.size - shift)
         );
     }
     if(bin.size < 8 + 2*2*depth*4) return make_error(env, "more");
@@ -180,28 +188,18 @@ read_one_row(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
     tag = enif_make_atom(env, "md");
     timestamp = bits_get(&br, 62);
     for(i = 0; i < depth; i++) {
-      int32_t p = (int32_t)bits_get(&br, 32);
-      uint32_t v = (uint32_t)bits_get(&br, 32);
-      bid[i] = enif_make_tuple2(env,
-        enif_make_int(env, p),
-        enif_make_uint(env, v)
-        );
+      bid_prices[i] = (int32_t)bits_get(&br, 32);
+      bid_sizes[i] = (uint32_t)bits_get(&br, 32);
     }
     for(i = 0; i < depth; i++) {
-      int32_t p = (int32_t)bits_get(&br, 32);
-      uint32_t v = (uint32_t)bits_get(&br, 32);
-      ask[i] = enif_make_tuple2(env,
-        enif_make_int(env, p),
-        enif_make_uint(env, v)
-        );
+      ask_prices[i] = (int32_t)bits_get(&br, 32);
+      ask_sizes[i] = (uint32_t)bits_get(&br, 32);
     }
   } else {
-    // Here goes decoding of delta string
-    if(argc == 2) {
-      // This means that we are isolated, without previous row
-      unpacking_delta = 0;
-      tag = enif_make_atom(env, "delta");
-    } else if(argc == 3) {
+    unpacking_delta = 0;
+    tag = enif_make_atom(env, "delta");
+
+    if(argc >= 3) {
       // And this means that we will append delta values to previous row
       unpacking_delta = 1;
       tag = enif_make_atom(env, "md");
@@ -237,7 +235,12 @@ read_one_row(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
         if(ar != 2) return make_error(env, "need_price_vol_arity_2_in_prev_bid");
         
         int price, volume;
-        if(!enif_get_int(env, price_vol[0], &price)) return make_error(env, "need_price_int_in_prev_bid");
+        double price_d;
+        if(!enif_get_int(env, price_vol[0], &price)) {
+          if(!scale) return make_error(env, "need_price_int_in_prev_bid");
+          if(!enif_get_double(env, price_vol[0], &price_d)) return make_error(env, "need_price_double_in_prev_bid");
+          price = price_d*scale;
+        } 
         if(!enif_get_int(env, price_vol[1], &volume)) return make_error(env, "need_vol_int_in_prev_bid");
         bid_prices[i] += price;
         bid_sizes[i] += volume;
@@ -252,27 +255,35 @@ read_one_row(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
         if(ar != 2) return make_error(env, "need_price_vol_arity_2_in_prev_ask");
         
         int price, volume;
-        if(!enif_get_int(env, price_vol[0], &price)) return make_error(env, "need_price_int_in_prev_ask");
+        double price_d;
+        if(!enif_get_int(env, price_vol[0], &price)) {
+          if(!scale) return make_error(env, "need_price_int_in_prev_ask");
+          if(!enif_get_double(env, price_vol[0], &price_d)) return make_error(env, "need_price_double_in_prev_ask");
+          price = price_d*scale;
+        } 
         if(!enif_get_int(env, price_vol[1], &volume)) return make_error(env, "need_vol_int_in_prev_ask");
         ask_prices[i] += price;
         ask_sizes[i] += volume;
       }
     }
     
-    for(i = 0; i < depth; i++) {
-      bid[i] = enif_make_tuple2(env,
-        enif_make_int(env, bid_prices[i]),
-        enif_make_int(env, bid_sizes[i])
-        );
-      ask[i] = enif_make_tuple2(env,
-        enif_make_int(env, ask_prices[i]),
-        enif_make_int(env, ask_sizes[i])
-        );
-    }
   }
   
   bits_align(&br);
   shift = bits_byte_offset(&br);
+  
+
+
+  for(i = 0; i < depth; i++) {
+    bid[i] = enif_make_tuple2(env,
+      scale ? enif_make_double(env, bid_prices[i]*1.0 / scale) : enif_make_int(env, bid_prices[i]),
+      enif_make_int(env, bid_sizes[i])
+      );
+    ask[i] = enif_make_tuple2(env,
+      scale ? enif_make_double(env, ask_prices[i]*1.0 / scale) : enif_make_int(env, ask_prices[i]),
+      enif_make_int(env, ask_sizes[i])
+      );
+  }
   
   return enif_make_tuple3(env,
     enif_make_atom(env, "ok"),
@@ -282,7 +293,7 @@ read_one_row(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
       enif_make_list_from_array(env, bid, depth),
       enif_make_list_from_array(env, ask, depth)
     ),
-    enif_make_uint64(env, shift)
+    enif_make_sub_binary(env, argv[0], shift, bin.size - shift)
     );
 }
 
@@ -298,7 +309,8 @@ static int reload(ErlNifEnv* env, void** priv_data, ERL_NIF_TERM load_info) {
 static ErlNifFunc stockdb_funcs[] =
 {
   {"read_one_row", 2, read_one_row},
-  {"read_one_row", 3, read_one_row}
+  {"read_one_row", 3, read_one_row},
+  {"read_one_row", 4, read_one_row}
 };
 
 

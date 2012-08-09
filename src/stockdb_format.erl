@@ -7,7 +7,7 @@
 
 
 -include_lib("eunit/include/eunit.hrl").
--export([read_one_row/2, read_one_row/3]).
+-export([read_one_row/2, read_one_row/3, read_one_row/4]).
 -export([encode_full_md/2, encode_delta_md/2]).
 -export([encode_trade/3, decode_trade/1]).
 -export([packet_type/1, decode_full_md/2, decode_delta_md/2]).
@@ -62,6 +62,9 @@ read_one_row(_Bin, _Depth) ->
   erlang:error(nif_not_loaded).
 
 read_one_row(_Bin, _Depth, _Previous) ->
+  erlang:error(nif_not_loaded).
+
+read_one_row(_Bin, _Depth, _Previous, _Scale) ->
   erlang:error(nif_not_loaded).
 
 

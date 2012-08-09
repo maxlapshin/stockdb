@@ -62,26 +62,28 @@ open_existing_db(Path, Modes) ->
 
 read_file(Path) ->
   case open(Path) of
-    {ok, #dbstate{buffer = Buffer, depth = Depth, chunk_map = [{_, _, Offset}|_]}} ->
+    {ok, #dbstate{buffer = Buffer, depth = Depth, chunk_map = [{_, _, Offset}|_], scale = Scale}} ->
       <<_:Offset/binary, Data/binary>> = Buffer,
-      {ok, read_all_events(Data, Depth, undefined)};
+      {ok, read_all_events(Data, Depth, undefined, Scale)};
     {ok, #dbstate{chunk_map = []}} ->
       {ok, []};
     Else ->
       Else
   end.
 
-read_all_events(<<>>, _Depth, _PrevMD) ->
+read_all_events(<<>>, _Depth, _PrevMD, _Scale) ->
   [];
 
-read_all_events(Data, Depth, PrevMD) ->
-  case stockdb_format:read_one_row(Data, Depth, PrevMD) of
-    {ok, #md{} = MD, Skip} ->
-      <<_:Skip/binary, Rest/binary>> = Data,
-      [MD|read_all_events(Rest, Depth, MD)];
-    {ok, #trade{} = Trade, Skip} ->
-      <<_:Skip/binary, Rest/binary>> = Data,
-      [Trade|read_all_events(Rest, Depth, PrevMD)]
+read_all_events(Data, Depth, PrevMD, Scale) ->
+  case stockdb_format:read_one_row(Data, Depth, PrevMD, Scale) of
+    {ok, #md{} = MD, Rest} ->
+      [MD|read_all_events(Rest, Depth, MD, Scale)];
+    {ok, #trade{timestamp = TS} = Trade, Rest} ->
+      NewMD = case PrevMD of
+        undefined -> undefined;
+        _ -> PrevMD#md{timestamp = TS}
+      end,
+      [Trade|read_all_events(Rest, Depth, NewMD, Scale)]
   end.
 
 %% @doc read data from chunk map start to EOF

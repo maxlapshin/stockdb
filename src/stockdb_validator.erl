@@ -63,12 +63,10 @@ validate_chunk(<<>>, _, State) ->
 
 validate_chunk(Chunk, Offset, #dbstate{last_md = MD, depth = Depth} = State) ->
   case stockdb_format:read_one_row(Chunk, Depth, MD) of
-    {ok, {md, TS, Bid, Ask} = NewMD, Skip} ->
-      <<_:Skip/binary, Rest/binary>> = Chunk,
-      validate_chunk(Rest, Offset + Skip, State#dbstate{last_md = NewMD, last_timestamp = TS, last_bidask = [Bid,Ask]});
-    {ok, {trade, _, _, _}, Skip} ->
-      <<_:Skip/binary, Rest/binary>> = Chunk,
-      validate_chunk(Rest, Offset + Skip, State);
+    {ok, {md, TS, Bid, Ask} = NewMD, Rest} ->
+      validate_chunk(Rest, Offset + size(Chunk) - size(Rest), State#dbstate{last_md = NewMD, last_timestamp = TS, last_bidask = [Bid,Ask]});
+    {ok, {trade, _, _, _}, Rest} ->
+      validate_chunk(Rest, Offset + size(Chunk) - size(Rest), State);
     {error, Reason} ->
       error(Reason),
       {error, State, Offset}
