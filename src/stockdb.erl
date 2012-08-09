@@ -7,16 +7,13 @@
 -include("log.hrl").
 
 %% Application configuration
--export([get_value/1, get_value/2, root/0]).
-
-%% Filesystem querying
-% -export([path/2, list_db/0, list_db/1, stocks/0, stock_dates/1, common_dates/1, file_info/1]).
+-export([get_value/1, get_value/2]).
 
 %% DB range processing
 -export([foldl/4]).
 
 
--export([stocks/0, stocks/1, dates/1, dates/2]).
+-export([stocks/0, stocks/1, dates/1, dates/2, common_dates/1, common_dates/2]).
 -export([open_read/2, open_append/2]).
 -export([append/2]).
 -export([chunks/1]).
@@ -26,34 +23,37 @@
 %% Run tests
 -export([run_tests/0]).
 
--define(DATE_DELIMITER, "-").
 -define(STOCK_DATE_DELIMITER, ":").
 
 
 
 %%% Desired API
 
+
 %% @doc List of stocks in local database
--spec stocks() -> list(stock()).
-stocks() ->
-  [].
+-spec stocks() -> [stock()].
+stocks() -> stockdb_fs:stocks().
 
 %% @doc List of stocks in remote database
--spec stocks(Storage::term()) -> list(stock()).
-stocks(_Storage) ->
-  [].
+-spec stocks(Storage::term()) -> [stock()].
+stocks(Storage) -> stockdb_fs:stocks(Storage).
 
 
 %% @doc List of available dates for stock
--spec dates(stock()) -> list(date()).
-dates(_Stock) ->
-  [].
-
+-spec dates(stock()) -> [date()].
+dates(Stock) -> stockdb_fs:dates(Stock).
 
 %% @doc List of available dates in remote database
--spec dates(Storage::term(), Stock::stock()) -> list(date()).
-dates(_Storage, _Stock) ->
-  [].
+-spec dates(Storage::term(), Stock::stock()) -> [date()].
+dates(Storage, Stock) -> stockdb_fs:dates(Storage, Stock).
+
+%% @doc List dates when all given stocks have data
+-spec common_dates([stock()]) -> [date()].
+common_dates(Stocks) -> stockdb_fs:common_dates(Stocks).
+
+%% @doc List dates when all given stocks have data, remote version
+-spec common_dates(Storage::term(), [stock()]) -> [date()].
+common_dates(Storage, Stocks) -> stockdb_fs:common_dates(Storage, Stocks).
 
 
 %% @doc Open stock for reading
@@ -147,102 +147,10 @@ get_value(Key) ->
     undefined -> erlang:error({no_key,Key})
   end.
 
-%% @doc Return root dir of history
-root() ->
-  get_value(root, "db").
 
 
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%       File system organization and querying
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-
-%% @doc Return path to DB file for given stock and date
-path(wildcard, Date) ->
-  path("*", Date);
-
-path(Stock, Date) ->
-  BaseName = [Stock, ?STOCK_DATE_DELIMITER, filename_timestamp(Date), ".stock"],
-  filename:join([root(), stock, BaseName]).
 
 
-%% @doc List all existing DB files
-list_db() -> list_db(wildcard).
-
-%% @doc List existing DB files for given stock
-list_db(Stock) ->
-  DbWildcard = path(Stock, filename_timestamp(wildcard)),
-  filelib:wildcard(DbWildcard).
-
-
-% %% @doc List stocks having any history data
-% stocks() ->
-%   StockSet = lists:foldl(fun(DbFile, Set) ->
-%         {db, Stock, _Date} = file_info(DbFile),
-%         sets:add_element(Stock, Set)
-%     end, sets:new(), list_db()),
-%   lists:sort(sets:to_list(StockSet)).
-
-
-%% @doc List dates when given stock has history data
-stock_dates(Stock) ->
-  Dates = lists:map(fun(DbFile) ->
-        {db, _Stock, Date} = file_info(DbFile),
-        Date
-    end, list_db(Stock)),
-  lists:sort(Dates).
-
-
-%% @doc List dates when all given stocks have data
-common_dates(Stocks) ->
-  StockDates = lists:map(fun stock_dates/1, Stocks),
-  [Dates1|OtherDates] = StockDates,
-
-  _CommonDates = lists:foldl(fun(Dates, CommonDates) ->
-        Missing = CommonDates -- Dates,
-        CommonDates -- Missing
-    end, Dates1, OtherDates).
-
-
-%% @doc return file information as {db, Stock, Date} if possible
-file_info(Path) ->
-  case (catch get_file_info(Path)) of
-    {ok, Info} ->
-      Info;
-    Other ->
-      ?D(Other),
-      undefined
-  end.
-
-%% internal use for file_info/1
-get_file_info(Path) ->
-  ".stock" =  filename:extension(Path),
-
-  Stock_Date = filename:rootname(filename:basename(Path)),
-  [StockString, Date] = string:tokens(Stock_Date, ?STOCK_DATE_DELIMITER),
-
-  {ok, {db, erlang:list_to_atom(StockString), Date}}.
-
-
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%      Format utility functions
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-
-%% @doc format given date for use in file name
-filename_timestamp({Y, M, D}) ->
-  % Format as YYYY-MM-DD
-  lists:flatten(io_lib:format("~4..0B" ?DATE_DELIMITER "~2..0B" ?DATE_DELIMITER "~2..0B", [Y, M, D]));
-
-filename_timestamp(wildcard) ->
-  % Wildcard for FS querying
-  "????" ?DATE_DELIMITER "??" ?DATE_DELIMITER "??";
-
-filename_timestamp(Date) ->
-  filename_timestamp(parse_date(Date)).
-
-%% @doc Parse string with date. Argument may be in form YYYY-MM-DD or YYYY/MM/DD
-parse_date(DateString) when is_list(DateString) andalso length(DateString) == 10 ->
-  [Y, M, D] = lists:map(fun erlang:list_to_integer/1, string:tokens(DateString, "-/.")),
-  {Y, M, D}.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %       Testing
@@ -251,30 +159,3 @@ parse_date(DateString) when is_list(DateString) andalso length(DateString) == 10
 run_tests() ->
   eunit:test({application, stockdb}).
 
--include_lib("eunit/include/eunit.hrl").
--include("stockdb_test_content.hrl").
-
-path_test() ->
-  ?assertEqual("db/stock/MICEX.TEST:2012-08-03.stock", path('MICEX.TEST', {2012, 08, 03})),
-  ?assertEqual("db/stock/MICEX.TEST:2012-08-03.stock", path('MICEX.TEST', "2012-08-03")),
-  ?assertEqual("db/stock/MICEX.TEST:2012-08-03.stock", path('MICEX.TEST', "2012/08/03")),
-  ?assertEqual("db/stock/*:????-??-??.stock", path(wildcard, wildcard)),
-  ok.
-
-file_info_test() ->
-  ?assertEqual({db, 'MICEX.TEST', "2012-08-03"}, file_info("db/stock/MICEX.TEST:2012-08-03.stock")),
-  ?assertEqual(undefined, file_info("db/stock/MICEX.TEST-2012-08-03.stock")),
-  ok.
-
-seek_read_test() ->
-  File = ?TEMPFILE("seek-read-test.temp"),
-  write_events_to_file(File, full_content()),
-
-  {ok, S} = ?MODULE:open(File, [read]),
-  ?MODULE:seek_utc(S, 1343207300000),
-
-  E1 = ?MODULE:read_event(S),
-  ensure_packets_equal({md, 1343207307670, [{12.32, 800}, {12.170, 400}, {11.97, 1100}], [{12.440, 800}, {12.47, 1100}, {12.69, 600}]},
-    E1),
-
-  ok = file:delete(File).
