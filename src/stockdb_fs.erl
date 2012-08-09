@@ -131,15 +131,37 @@ parse_date(DateString) when is_list(DateString) andalso length(DateString) == 10
 -include_lib("eunit/include/eunit.hrl").
 
 path_test() ->
-  ?assertEqual("db/stock/MICEX.TEST-2012-08-03.stock", path('MICEX.TEST', {2012, 08, 03})),
-  ?assertEqual("db/stock/MICEX.TEST-2012-08-03.stock", path('MICEX.TEST', "2012-08-03")),
-  ?assertEqual("db/stock/MICEX.TEST-2012-08-03.stock", path('MICEX.TEST', "2012/08/03")),
-  ?assertEqual("db/stock/*-????-??-??.stock", path(wildcard, wildcard)),
+  application:set_env(stockdb, root, "custom/path"),
+  ?assertEqual("custom/path/stock/MICEX.TEST-2012-08-03.stock", path('MICEX.TEST', {2012, 08, 03})),
+  ?assertEqual("custom/path/stock/MICEX.TEST-2012-08-03.stock", path('MICEX.TEST', "2012-08-03")),
+  ?assertEqual("custom/path/stock/MICEX.TEST-2012-08-03.stock", path('MICEX.TEST', "2012/08/03")),
+  ?assertEqual("custom/path/stock/*-????-??-??.stock", path(wildcard, wildcard)),
   ok.
 
 file_info_test() ->
+  application:set_env(stockdb, root, "custom/path"),
   ?assertEqual({db, 'MICEX.TEST', "2012-08-03"}, file_info("db/stock/MICEX.TEST-2012-08-03.stock")),
   ?assertEqual(undefined, file_info("db/stock/MICEX.TEST.2012-08-03.stock")),
   ?assertEqual(undefined, file_info("db/stock/MICEX.TEST-2012.08.03.stock")),
+  ok.
+
+stocks_test() ->
+  application:set_env(stockdb, root, "apps/stockdb/test/fixtures/fs"),
+  ?assertEqual(lists:sort(['MICEX.TEST', 'LSEIOB.TEST', 'FX_TOM.USDRUB']), stocks()),
+  ok.
+
+dates_test() ->
+  application:set_env(stockdb, root, "apps/stockdb/test/fixtures/fs"),
+  ?assertEqual(["2012-08-01", "2012-08-02", "2012-08-05"],
+    dates('MICEX.TEST')),
+  ?assertEqual(["2012-08-01", "2012-08-03", "2012-08-04", "2012-08-05", "2012-08-06"],
+    dates('LSEIOB.TEST')),
+  ?assertEqual(["2012-08-02", "2012-08-04", "2012-08-05"],
+    dates('FX_TOM.USDRUB')),
+  ok.
+
+common_dates_test() ->
+  application:set_env(stockdb, root, "apps/stockdb/test/fixtures/fs"),
+  ?assertEqual(["2012-08-05"], common_dates(['MICEX.TEST', 'LSEIOB.TEST', 'FX_TOM.USDRUB'])),
   ok.
 
