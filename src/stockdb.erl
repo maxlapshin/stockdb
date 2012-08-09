@@ -13,7 +13,7 @@
 -export([foldl/4]).
 
 
--export([stocks/0, stocks/1, dates/1, dates/2]).
+-export([stocks/0, stocks/1, dates/1, dates/2, common_dates/1, common_dates/2]).
 -export([open_read/2, open_append/2]).
 -export([append/2]).
 -export([chunks/1]).
@@ -46,6 +46,14 @@ dates(Stock) -> stockdb_fs:dates(Stock).
 %% @doc List of available dates in remote database
 -spec dates(Storage::term(), Stock::stock()) -> [date()].
 dates(Storage, Stock) -> stockdb_fs:dates(Storage, Stock).
+
+%% @doc List dates when all given stocks have data
+-spec common_dates([stock()]) -> [date()].
+common_dates(Stocks) -> stockdb_fs:common_dates(Stocks).
+
+%% @doc List dates when all given stocks have data, remote version
+-spec common_dates(Storage::term(), [stock()]) -> [date()].
+common_dates(Storage, Stocks) -> stockdb_fs:common_dates(Storage, Stocks).
 
 
 %% @doc Open stock for reading
