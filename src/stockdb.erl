@@ -9,14 +9,19 @@
 %% Application configuration
 -export([get_value/1, get_value/2, root/0]).
 
-%% File-like API
--export([open/2, append/2, seek_utc/2, read_event/1, close/1]).
-
 %% Filesystem querying
--export([path/2, list_db/0, list_db/1, stocks/0, stock_dates/1, common_dates/1, file_info/1]).
+% -export([path/2, list_db/0, list_db/1, stocks/0, stock_dates/1, common_dates/1, file_info/1]).
 
 %% DB range processing
 -export([foldl/4]).
+
+
+-export([stocks/0, stocks/1, dates/1, dates/2]).
+-export([open_read/2, open_append/2]).
+-export([append/2]).
+-export([chunks/1]).
+-export([init_reader/2, read_event/1]).
+-export([close/1]).
 
 %% Run tests
 -export([run_tests/0]).
@@ -24,33 +29,87 @@
 -define(DATE_DELIMITER, "-").
 -define(STOCK_DATE_DELIMITER, ":").
 
+
+
+%%% Desired API
+
+%% @doc List of stocks in local database
+-spec stocks() -> list(stock()).
+stocks() ->
+  [].
+
+%% @doc List of stocks in remote database
+-spec stocks(Storage::term()) -> list(stock()).
+stocks(_Storage) ->
+  [].
+
+
+%% @doc List of available dates for stock
+-spec dates(stock()) -> list(date()).
+dates(_Stock) ->
+  [].
+
+
+%% @doc List of available dates in remote database
+-spec dates(Storage::term(), Stock::stock()) -> list(date()).
+dates(_Storage, _Stock) ->
+  [].
+
+
+%% @doc Open stock for reading
+-spec open_read(stock(), date()) -> {ok, stockdb()} | {error, Reason::term()}.  
+open_read(_Stock, _Date) ->
+  {error, not_implemented}.
+
+%% @doc Open stock for appending
+-spec open_append(stock(), date()) -> {ok, stockdb()} | {error, Reason::term()}.  
+open_append(_Stock, _Date) ->
+  {error, not_implemented}.
+
+%% @doc Append row to db
+-spec append(stockdb(), trade() | market_data()) -> {ok, stockdb()} | {error, Reason::term()}.
+append(_Stockdb, _Event) ->
+  {error, not_implemented}.
+
+%% @doc List of chunks in file
+-spec chunks(stockdb()) -> list(timestamp()).
+chunks(_Stockdb) ->
+  [].
+
+
+%% @doc Init iterator over opened stockdb
+-spec init_reader(stockdb(), list(reader_option())) -> {ok, iterator()} | {error, Reason::term()}.
+init_reader(_Stockdb, _Opts) ->
+  {error, not_implemented}.
+
+%% @doc Read next event from iterator
+-spec read_event(iterator()) -> {ok, trade() | market_data(), iterator()} | {eof, iterator()}.
+read_event(Iterator) ->
+  {eof, Iterator}.
+
+%% @doc close stockdb
+-spec close(stockdb()) -> ok.
+close(_Stockdb) ->
+  ok.
+
+
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %        File API
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
+-type open_options() :: append | read | raw.
 -spec open(Path::file:filename(), [open_options()]) -> {ok, stockdb()} | {error, Reason::term()}.
 open(Path, Options) ->
   case lists:member(raw, Options) of
     true ->
       stockdb_raw:open(Path, [raw|Options]);
     false ->
-      gen_server:start_link(stockdb_instance, {Path, Options}, [])
+      {ok, Pid} = gen_server:start_link(stockdb_instance, {Path, Options}, []),
+      {ok, {stockdb_pid, Pid}}
   end.
 
-%% Proxy requests to instance
-close(Pid) ->
-  % terminate instance
-  gen_server:call(Pid, stop).
 
-append(Pid, Object) ->
-  % append object to DB
-  gen_server:call(Pid, {append, Object}).
-
-read_event(Pid) ->
-  % pop event from buffer
-  gen_server:call(Pid, read_event).
-
-seek_utc(Pid, UTC) ->
+seek_utc({stockdb_pid, Pid}, UTC) ->
   % set buffer and state to first event after given timestamp
   gen_server:call(Pid, {seek_utc, UTC}).
 
@@ -115,13 +174,13 @@ list_db(Stock) ->
   filelib:wildcard(DbWildcard).
 
 
-%% @doc List stocks having any history data
-stocks() ->
-  StockSet = lists:foldl(fun(DbFile, Set) ->
-        {db, Stock, _Date} = file_info(DbFile),
-        sets:add_element(Stock, Set)
-    end, sets:new(), list_db()),
-  lists:sort(sets:to_list(StockSet)).
+% %% @doc List stocks having any history data
+% stocks() ->
+%   StockSet = lists:foldl(fun(DbFile, Set) ->
+%         {db, Stock, _Date} = file_info(DbFile),
+%         sets:add_element(Stock, Set)
+%     end, sets:new(), list_db()),
+%   lists:sort(sets:to_list(StockSet)).
 
 
 %% @doc List dates when given stock has history data

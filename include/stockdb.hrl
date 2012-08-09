@@ -5,7 +5,7 @@
 -type quotes() :: [{price(), volume()}].
 -type timestamp() :: non_neg_integer().
 -type stock() :: atom().
-
+-type date() :: string().
 
 
 -record(md, {
@@ -23,5 +23,7 @@
 -type market_data() :: #md{}.
 -type trade() :: #trade{}.
 
+-type filter() :: candle | average.
+-type reader_option() :: {filter, filter()} | {range, timestamp(), timestamp()}.
 
--type open_options() :: append | read | raw.
+-type iterator() :: term().
