@@ -12,12 +12,13 @@
 % returning self-sufficient state
 -export([open/1, open_existing_db/2]).
 
+-export([file_info/2]).
+
 open(Path) ->
   case filelib:is_regular(Path) of
     true ->
       {State0, _} = open_existing_db(Path, [read, binary, raw]),
-      State1 = buffer_data(State0),
-      close(State1);
+      close(State0);
     false ->
       {error, nofile}
   end.
@@ -48,12 +49,18 @@ open_existing_db(Path, Modes) ->
     chunk_map_offset = ChunkMapOffset
   },
 
-  {_StateChunkRead, _BadChunks} = read_chunk_map(State0).
+  StateBuffered = buffer_data(State0),
+  {_StateChunkRead, _BadChunks} = read_chunk_map(StateBuffered).
 
 
 %% @doc read data from chunk map start to EOF
-buffer_data(State) ->
-  State.
+buffer_data(#dbstate{file = File, chunk_map_offset = ChunkMapOffset} = State) ->
+  % determine file size
+  {ok, FileSize} = file:position(File, eof),
+  % read all data from data start to file end
+  {ok, Buffer} = file:pread(File, ChunkMapOffset, FileSize - ChunkMapOffset),
+  % return state with buffer set
+  State#dbstate{buffer = Buffer}.
 
 %% @doc Close file to make state self-sufficient
 close(#dbstate{file = File} = State) ->
@@ -86,6 +93,7 @@ read_header(File) ->
   {ok, Offset} = file:position(File, cur),
   {ok, Options, Offset}.
 
+%% @doc Helper for read_header -- read lines until empty line is met
 read_header_lines(File, Acc) ->
   {ok, HeaderLine} = file:read_line(File),
   case parse_header_line(HeaderLine) of
@@ -149,13 +157,16 @@ read_chunk_map(#dbstate{} = State) ->
   {State#dbstate{chunk_map = GoodChunkMap}, BadChunks}.
 
 %% @doc Read raw chunk map and return {Number, Offset} list for chunks containing data
-nonzero_chunks(#dbstate{file = File, chunk_size = ChunkSize, chunk_map_offset = ChunkMapOffset}) ->
+nonzero_chunks(#dbstate{buffer = Buffer, chunk_size = ChunkSize}) ->
   ChunkCount = stockdb_raw:number_of_chunks(ChunkSize),
-  {ok, ChunkMap} = file:pread(File, ChunkMapOffset, ChunkCount*?OFFSETLEN div 8),
-  Chunks1 = lists:zip(lists:seq(0,ChunkCount - 1), [Offset || <<Offset:?OFFSETLEN>> <= ChunkMap]),
-  [{N,Offset} || {N,Offset} <- Chunks1, Offset =/= 0].
+  {Chunks, _} = lists:mapfoldl(fun(Number, Bin) ->
+        <<Offset:?OFFSETLEN/integer, Tail/binary>> = Bin,
+        Chunk = {Number, Offset},
+        {Chunk, Tail}
+    end, Buffer, lists:seq(0, ChunkCount - 1)),
+  [{N,Offset} || {N,Offset} <- Chunks, Offset =/= 0].
 
 %% @doc Read timestamp at specified offset
-read_timestamp_at_offset(Offset, #dbstate{file = File, chunk_map_offset = ChunkMapOffset}) ->
-  {ok, Buffer} = file:pread(File, ChunkMapOffset + Offset, 8),
-  stockdb_format:decode_timestamp(Buffer).
+read_timestamp_at_offset(Offset, #dbstate{buffer = Buffer}) ->
+  <<_:Offset/binary, SubBuf/binary>> = Buffer,
+  stockdb_format:decode_timestamp(SubBuf).
