@@ -5,42 +5,6 @@
 -compile([export_all]).
 
 
-write_append_test() ->
-  write_append_test([]).
-raw_write_append_test() ->
-  write_append_test([raw]).
-
-write_append_test(Options) ->
-  File = ?TEMPFILE("write-append-test.temp"),
-  ok = filelib:ensure_dir(File),
-
-  {ok, S0} = stockdb_raw:open(File, Options ++ [write, {stock, 'TEST'}, {date, {2012,7,25}}, {depth, 3}, {scale, 200}, {chunk_size, 300}]),
-  S1 = lists:foldl(fun(Event, State) ->
-        {ok, NextState} = stockdb_raw:append(Event, State),
-        NextState
-    end, S0, chunk_109_content() ++ chunk_110_content_1()),
-  ok = stockdb_raw:close(S1),
-
-  {ok, S2} = stockdb_raw:open(File, Options ++ [append]),
-  ensure_states_equal(S1, S2),
-  S3 = lists:foldl(fun(Event, State) ->
-        {ok, NextState} = stockdb_raw:append(Event, State),
-        NextState
-    end, S2, chunk_110_content_2() ++ chunk_112_content()),
-  ok = stockdb_raw:close(S3),
-
-  {ok, S4_} = stockdb_raw:open(File, Options ++ [read]),
-  {ok, S4} = stockdb_raw:restore_state(S4_),
-  ensure_states_equal(S3, S4),
-  ok = stockdb_raw:close(S4),
-
-  {ok, FileEvents} = stockdb_raw:read_file(File),
-  lists:zipwith(fun(Expected, Read) ->
-        ensure_packets_equal(Expected, Read)
-    end,
-    chunk_109_content() ++ chunk_110_content_1() ++ chunk_110_content_2() ++ chunk_112_content(),
-    FileEvents),
-  ok = file:delete(File).
 
 db_repair_test() ->
   File = ?TEMPFILE("db-repair-test.temp"),

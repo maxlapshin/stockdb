@@ -70,7 +70,7 @@ append({md, _Timestamp, _Bid, _Ask} = MD, #dbstate{scale = Scale, next_md_full =
   append_full_md(scale_md(MD, Scale), State);
 
 append({md, _Timestamp, _Bid, _Ask} = MD, #dbstate{scale = Scale} = State) ->
-  append_delta_md(stockdb_raw:scale_md(MD, Scale), State).
+  append_delta_md(scale_md(MD, Scale), State).
 
 
 write_header(File, #dbstate{chunk_size = CS, date = Date, depth = Depth, scale = Scale, stock = Stock, version = Version}) ->
