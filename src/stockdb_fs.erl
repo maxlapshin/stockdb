@@ -146,12 +146,12 @@ file_info_test() ->
   ok.
 
 stocks_test() ->
-  application:set_env(stockdb, root, "apps/stockdb/test/fixtures/fs"),
+  application:set_env(stockdb, root, code:lib_dir(stockdb, test) ++ "/fixtures/fs"),
   ?assertEqual(lists:sort(['MICEX.TEST', 'LSEIOB.TEST', 'FX_TOM.USDRUB']), stocks()),
   ok.
 
 dates_test() ->
-  application:set_env(stockdb, root, "apps/stockdb/test/fixtures/fs"),
+  application:set_env(stockdb, root, code:lib_dir(stockdb, test) ++ "/fixtures/fs"),
   ?assertEqual(["2012-08-01", "2012-08-02", "2012-08-05"],
     dates('MICEX.TEST')),
   ?assertEqual(["2012-08-01", "2012-08-03", "2012-08-04", "2012-08-05", "2012-08-06"],
@@ -161,7 +161,7 @@ dates_test() ->
   ok.
 
 common_dates_test() ->
-  application:set_env(stockdb, root, "apps/stockdb/test/fixtures/fs"),
+  application:set_env(stockdb, root, code:lib_dir(stockdb, test) ++ "/fixtures/fs"),
   ?assertEqual(["2012-08-05"], common_dates(['MICEX.TEST', 'LSEIOB.TEST', 'FX_TOM.USDRUB'])),
   ok.
 
