@@ -63,13 +63,13 @@ open_read(_Stock, _Date) ->
 
 %% @doc Open stock for appending
 -spec open_append(stock(), date()) -> {ok, stockdb()} | {error, Reason::term()}.  
-open_append(_Stock, _Date) ->
-  {error, not_implemented}.
+open_append(Stock, Date) ->
+  stockdb_appender:open(stockdb_fs:path(Stock, Date)).
 
 %% @doc Append row to db
 -spec append(stockdb(), trade() | market_data()) -> {ok, stockdb()} | {error, Reason::term()}.
-append(_Stockdb, _Event) ->
-  {error, not_implemented}.
+append(Stockdb, Event) ->
+  stockdb_appender:append(Stockdb, Event).
 
 %% @doc List of chunks in file
 -spec chunks(stockdb()) -> list(timestamp()).
