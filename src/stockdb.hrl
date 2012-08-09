@@ -2,6 +2,7 @@
 -record(dbstate, {
     version,
     file,
+    mode :: read|append,
     buffer,
     buffer_end,
     stock,

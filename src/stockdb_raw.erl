@@ -7,11 +7,11 @@
 -include_lib("eunit/include/eunit.hrl").
 -include("stockdb.hrl").
 
--export([open/2, restore_state/1, seek_utc/2, read_event/1, read_file/1, file_info/2, close/1]).
+-export([open/2, seek_utc/2, read_event/1, read_file/1, file_info/2, close/1]).
 -export([foldl/3, foldl_range/4]).
 
 -export([init_with_opts/1, read_packet_from_buffer/1]).
--export([number_of_chunks/1]).
+-export([number_of_chunks/1, read_header/1, read_chunk_map/1]).
 
 -define(PARSEOPT(OptName),
   parse_opts([{OptName, Value}|MoreOpts], State) ->
@@ -93,18 +93,17 @@ open_existing_db(FileName, FileOpts, GivenStockDBOpts) ->
     file = File,
     chunk_map_offset = ChunkMapOffset},
 
-  StateChunkRead = read_chunk_map(StateFileOpen),
-
-  StateReady = case lists:member(write, FileOpts) of
-    true -> fast_forward(StateChunkRead);
-    false -> StateChunkRead
+  {StateChunkRead, BadChunks} = read_chunk_map(StateFileOpen),
+  case BadChunks of
+    [] -> ok;
+    _ -> error_logger:error_msg("Broken chunks in database ~s: ~p, need to repair~n", [FileName, BadChunks])
   end,
+
+  StateReady = StateChunkRead,
 
   % ?D({last_packet, StateReady#dbstate.last_timestamp}),
   {ok, StateReady}.
 
-restore_state(State) ->
-  {ok, fast_forward(State)}.
 
 update_db_options(OldOptions, _NewOptions) ->
   % TODO: decide what we can update
@@ -292,38 +291,34 @@ number_of_chunks(ChunkSize) ->
   timer:hours(24) div timer:seconds(ChunkSize) + 1.
 
 
+
 read_chunk_map(#dbstate{} = State) ->
   ChunkMap = lists:map(fun({Number, Offset}) ->
-          try
-            Timestamp = read_timestamp_at_offset(Offset, State),
-            {Number, Timestamp, Offset}
-          catch
-            error:Reason ->
-              ?D({error_reading_timestamp, Offset, Reason}),
-              % FIXME: if opened for reading, use error_logger to inform and read, what is possible
-              % In other case, validate file
-              % write_chunk_offset(Number, 0, State),
-              {Number, 0, 0}
-          end
-    end, nonzero_chunks(State)),
-  GoodChunkMap = lists:filter(fun({_Number, Timestamp, Offset}) ->
-          Timestamp * 1 > 0 andalso Offset * 1 > 0
-      end, ChunkMap),
-  State#dbstate{chunk_map = GoodChunkMap}.
+    try
+      Timestamp = read_timestamp_at_offset(Offset, State),
+      {Number, Timestamp, Offset}
+    catch
+      error:Reason ->
+        ?D({error_reading_timestamp, Offset, Reason}),
+        % FIXME: if opened for reading, use error_logger to inform and read, what is possible
+        % In other case, validate file
+        % write_chunk_offset(Number, 0, State),
+        {Number, 0, 0}
+    end
+  end, nonzero_chunks(State)),
+  {GoodChunkMap, BadChunks} = lists:partition(fun({_Number, Timestamp, Offset}) ->
+    Timestamp * 1 > 0 andalso Offset * 1 > 0
+  end, ChunkMap),
+  {State#dbstate{chunk_map = GoodChunkMap}, BadChunks}.
+
+
 
 
 nonzero_chunks(#dbstate{file = File, chunk_size = ChunkSize, chunk_map_offset = ChunkMapOffset}) ->
-  OffsetByteSize = ?OFFSETLEN div 8,
   ChunkCount = number_of_chunks(ChunkSize),
-  ReversedResult = lists:foldl(fun(N, NZChunks) ->
-        case file:pread(File, ChunkMapOffset + OffsetByteSize*N, OffsetByteSize) of
-          {ok, <<0:?OFFSETLEN>>} ->
-            NZChunks;
-          {ok, <<NonZero:?OFFSETLEN/integer>>} ->
-            [{N, NonZero}|NZChunks]
-        end
-    end, [], lists:seq(0, ChunkCount - 1)),
-  lists:reverse(ReversedResult).
+  {ok, ChunkMap} = file:pread(File, ChunkMapOffset, ChunkCount*?OFFSETLEN div 8),
+  Chunks1 = lists:zip(lists:seq(0,ChunkCount - 1), [Offset || <<Offset:?OFFSETLEN>> <= ChunkMap]),
+  [{N,Offset} || {N,Offset} <- Chunks1, Offset =/= 0].
 
 
 
@@ -344,38 +339,6 @@ bidask_delta_apply1(List1, List2) ->
   end, List1, List2).
 
 
-fast_forward(#dbstate{chunk_map = []} = State) ->
-  State;
-fast_forward(#dbstate{file = File, chunk_size = ChunkSize, chunk_map_offset = ChunkMapOffset, chunk_map = ChunkMap} = State) ->
-  {N, LastChunkTimestamp, LastChunkOffset} = lists:last(ChunkMap),
-  AbsOffset = ChunkMapOffset + LastChunkOffset,
-  {ok, FileSize} = file:position(File, eof),
-
-  {ok, Buffer} = file:pread(File, AbsOffset, FileSize - AbsOffset),
-  LastState = case read_buffered_events(State#dbstate{buffer = Buffer, buffer_end = FileSize - ChunkMapOffset, next_md_full = true}) of
-    {_Packets, OKState} ->
-      OKState;
-
-    {parse_error, FailState, _Packets} ->
-      % Try to truncate erroneous tail
-      BufferLen = erlang:byte_size(Buffer),
-      ErrorLen = erlang:byte_size(FailState#dbstate.buffer),
-      ?D({truncating_last_bytes, ErrorLen}),
-      % Calculate position relative to chunk start
-      GoodBufLen = BufferLen - ErrorLen,
-      % Set position
-      {ok, _} = file:position(File, AbsOffset + GoodBufLen),
-      % Truncate. It will fail on read-only file, but it is OK
-      ok == file:truncate(File) orelse erlang:throw({truncate_failed, possible_read_only}),
-      FailState#dbstate{buffer = undefined}
-  end,
-
-  Daystart = utc_to_daystart(LastChunkTimestamp),
-  ChunkSizeMs = timer:seconds(ChunkSize),
-
-  LastState#dbstate{
-    daystart = Daystart,
-    next_chunk_time = Daystart + ChunkSizeMs * (N + 1)}.
 
 
 read_timestamp_at_offset(Offset, #dbstate{file = File, chunk_map_offset = ChunkMapOffset}) ->

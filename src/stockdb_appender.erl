@@ -34,6 +34,7 @@ create_new_db(Path, Opts) ->
   {stock, Stock} = lists:keyfind(stock, 1, Opts),
   {date, Date} = lists:keyfind(date, 1, Opts),
   State = #dbstate{
+    mode = append,
     version = ?STOCKDB_VERSION,
     stock = Stock,
     date = Date,
@@ -51,8 +52,81 @@ create_new_db(Path, Opts) ->
     }}.
 
 
-open_existing_db(Path, Opts) ->
-  {error, not_implemented}.
+open_existing_db(Path, _Opts) ->
+  {ok, File} = file:open(Path, [binary,write,raw]),
+  {ok, 0} = file:position(File, bof),
+
+  {ok, SavedDBOpts, ChunkMapOffset} = stockdb_raw:read_header(File),
+
+  {version, Version} = lists:keyfind(version, SavedDBOpts),
+  Version == ?STOCKDB_VERSION orelse erlang:error({need_to_migrate, Path}),
+  {stock, Stock} = lists:keyfind(stock, 1, SavedDBOpts),
+  {date, Date} = lists:keyfind(date, 1, SavedDBOpts),
+  {scale, Scale} = lists:keyfind(scale, 1, SavedDBOpts),
+  {depth, Depth} = lists:keyfind(depth, 1, SavedDBOpts),
+  {chunk_size, ChunkSize} = lists:keyfind(chunk_size, 1, SavedDBOpts),
+  
+  State0 = #dbstate{
+    mode = append,
+    version = Version,
+    stock = Stock,
+    date = Date,
+    depth = Depth,
+    scale = Scale,
+    chunk_size = ChunkSize,
+    file = File,
+    chunk_map_offset = ChunkMapOffset
+  },
+
+  {StateChunkRead, BadChunks} = stockdb_raw:read_chunk_map(State0),
+  case BadChunks of
+    [] -> 
+      ok;
+    _ -> 
+      error_logger:error_msg("Broken chunks in database ~s: ~p, repairing~n", [Path, BadChunks])
+      % FIXME: make real repair
+      % write_chunk_offset(Number, 0, State),
+  end,
+
+  StateReady = fast_forward(StateChunkRead),
+
+  {ok, StateReady}.
+
+
+fast_forward(#dbstate{chunk_map = []} = State) ->
+  State;
+fast_forward(#dbstate{file = File, chunk_size = ChunkSize, chunk_map_offset = ChunkMapOffset, chunk_map = ChunkMap} = State) ->
+  {N, LastChunkTimestamp, LastChunkOffset} = lists:last(ChunkMap),
+  AbsOffset = ChunkMapOffset + LastChunkOffset,
+  {ok, FileSize} = file:position(File, eof),
+
+  {ok, Buffer} = file:pread(File, AbsOffset, FileSize - AbsOffset),
+  LastState = case stockdb_raw:read_buffered_events(State#dbstate{buffer = Buffer, buffer_end = FileSize - ChunkMapOffset, next_md_full = true}) of
+    {_Packets, OKState} ->
+      OKState;
+
+    {parse_error, FailState, _Packets} ->
+      % Try to truncate erroneous tail
+      BufferLen = erlang:byte_size(Buffer),
+      ErrorLen = erlang:byte_size(FailState#dbstate.buffer),
+      ?D({truncating_last_bytes, ErrorLen}),
+      % Calculate position relative to chunk start
+      GoodBufLen = BufferLen - ErrorLen,
+      % Set position
+      {ok, _} = file:position(File, AbsOffset + GoodBufLen),
+      % Truncate. It will fail on read-only file, but it is OK
+      ok == file:truncate(File) orelse erlang:throw({truncate_failed, possible_read_only}),
+      FailState#dbstate{buffer = undefined}
+  end,
+
+  Daystart = stockdb_raw:utc_to_daystart(LastChunkTimestamp),
+  ChunkSizeMs = timer:seconds(ChunkSize),
+
+  LastState#dbstate{
+    daystart = Daystart,
+    next_chunk_time = Daystart + ChunkSizeMs * (N + 1)}.
+
+
 
 
 append({trade, Timestamp, _ ,_} = Trade, #dbstate{next_chunk_time = NCT} = State) when Timestamp >= NCT ->
