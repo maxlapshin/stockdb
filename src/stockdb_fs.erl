@@ -84,7 +84,7 @@ list_db() -> list_db(wildcard).
 
 %% @doc List existing DB files for given stock
 list_db(Stock) ->
-  DbWildcard = path(Stock, filename_timestamp(wildcard)),
+  DbWildcard = path(Stock, wildcard),
   filelib:wildcard(DbWildcard).
 
 %% @doc return file information as {db, Stock, Date} if possible
