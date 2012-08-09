@@ -7,12 +7,16 @@
 init({File, Options}) ->
   {ok, _State} = stockdb_raw:open(File, [raw|Options]).
 
-handle_call({append, Object}, _From, State) ->
-  {ok, NewState} = stockdb_raw:append(Object, State),
+handle_call(stop, _From, State) ->
+  {stop, normal, ok, State};
+
+handle_call(Function, _From, State) when is_atom(Function) ->
+  {ok, NewState} = stockdb_raw:Function(State),
   {reply, ok, NewState};
 
-handle_call(stop, _From, State) ->
-  {stop, normal, ok, State}.
+handle_call({Function, Arg1}, _From, State) when is_atom(Function) ->
+  {ok, NewState} = stockdb_raw:Function(Arg1, State),
+  {reply, ok, NewState}.
 
 code_change(_, State, _) ->
   {ok, State}.
