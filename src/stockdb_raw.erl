@@ -7,11 +7,11 @@
 -include_lib("eunit/include/eunit.hrl").
 -include("stockdb.hrl").
 
--export([open/2, seek_utc/2, read_event/1, read_file/1, file_info/2, close/1]).
+-export([seek_utc/2, read_event/1, read_file/1, close/1]).
 -export([foldl/3, foldl_range/4]).
 
 -export([init_with_opts/1, read_packet_from_buffer/1]).
--export([number_of_chunks/1, read_header/1, read_chunk_map/1]).
+-export([number_of_chunks/1]).
 
 -define(PARSEOPT(OptName),
   parse_opts([{OptName, Value}|MoreOpts], State) ->
@@ -43,66 +43,6 @@ utcdate() ->
 init_with_opts(Opts) ->
   parse_opts(Opts, #dbstate{}).
 
-
-open(FileName, Options) ->
-  {StockDBOpts, OpenOpts} = lists:partition(fun is_stockdb_option/1, Options),
-
-  {Action, FileOpts} = determine_action(OpenOpts),
-  FileExists = filelib:is_regular(FileName),
-
-  case {Action, FileExists} of
-    % {create, _} ->
-    %   create_new_db(FileName, FileOpts, StockDBOpts);
-    {read, _} ->
-      open_existing_db(FileName, FileOpts, StockDBOpts)
-    % {append, true} ->
-    %   open_existing_db(FileName, FileOpts, StockDBOpts);
-    % {append, false} ->
-    %   create_new_db(FileName, FileOpts, StockDBOpts)
-  end.
-
-determine_action(FileOpts) ->
-  determine_action(FileOpts, [], []).
-
-determine_action([Mode|Opts], Modes, NonModes) when Mode == read orelse Mode == write orelse Mode == append ->
-  determine_action(Opts, [Mode|Modes], NonModes);
-
-determine_action([Opt|Opts], Modes, NonModes) ->
-  determine_action(Opts, Modes, [Opt|NonModes]);
-
-determine_action([], Modes, NonModes) ->
-  case lists:usort(Modes) of
-    [read] -> {read, [read|NonModes]};
-    [write] -> {create, [write|NonModes]};
-    [append] -> {append, [read, write|NonModes]};
-    [read, write] -> {append, [read, write|NonModes]};
-    Other -> erlang:error({unsupported_option_set, Other})
-  end.
-
-
-open_existing_db(FileName, FileOpts, GivenStockDBOpts) ->
-  {ok, File} = file:open(FileName, [binary|FileOpts]),
-  {ok, 0} = file:position(File, bof),
-
-  {ok, SavedDBOpts, ChunkMapOffset} = read_header(File),
-
-  StockDBOpts = update_db_options(SavedDBOpts, GivenStockDBOpts),
-  State0 = parse_opts(StockDBOpts, #dbstate{}),
-
-  StateFileOpen = State0#dbstate{
-    file = File,
-    chunk_map_offset = ChunkMapOffset},
-
-  {StateChunkRead, BadChunks} = read_chunk_map(StateFileOpen),
-  case BadChunks of
-    [] -> ok;
-    _ -> error_logger:error_msg("Broken chunks in database ~s: ~p, need to repair~n", [FileName, BadChunks])
-  end,
-
-  StateReady = StateChunkRead,
-
-  % ?D({last_packet, StateReady#dbstate.last_timestamp}),
-  {ok, StateReady}.
 
 
 update_db_options(OldOptions, _NewOptions) ->
@@ -167,9 +107,9 @@ drop_before(State, UTC) ->
   end.
 
 read_file(FileName) ->
-  {ok, State0} = open(FileName, [read, binary]),
+  {ok, State0} = stockdb_reader:open(FileName),
   {ok, FileSize} = file:position(State0#dbstate.file, eof),
-  [{_, ROffset0}|_] = nonzero_chunks(State0),
+  [{_, ROffset0}|_] = stockdb_raw:nonzero_chunks(State0),
 
   Offset0 = State0#dbstate.chunk_map_offset + ROffset0,
   {ok, Buffer} = file:pread(State0#dbstate.file, Offset0, FileSize - Offset0),
@@ -184,7 +124,7 @@ foldl(Fun, Acc0, FileName) ->
 
 % foldl_range: fold over entries in specified time range
 foldl_range(Fun, Acc0, FileName, {Start, End}) ->
-  {ok, State0} = open(FileName, [read, binary]),
+  {ok, State0} = stockdb_raw:open(FileName),
   State1 = seek_utc(Start, State0),
   FoldResult = case End of
     undefined ->
@@ -225,100 +165,18 @@ do_foldl_until(Fun, AccIn, State, End) ->
       end
   end.
 
-file_info(FileName, Fields) ->
-  {ok, File} = file:open(FileName, [read, binary]),
-  {ok, 0} = file:position(File, bof),
-
-  {ok, SavedDBOpts, ChunkMapOffset} = read_header(File),
-
-  Result = lists:map(fun
-      (presence) ->
-        ChunkSize = proplists:get_value(chunk_size, SavedDBOpts),
-        NZChunks = nonzero_chunks(#dbstate{file=File, chunk_map_offset = ChunkMapOffset, chunk_size = ChunkSize}),
-        {number_of_chunks(ChunkSize), [N || {N, _} <- NZChunks]};
-      (Field) ->
-        proplists:get_value(Field, SavedDBOpts)
-    end, Fields),
-
-  file:close(File),
-  Result.
 
 
 close(#dbstate{file = File} = _State) ->
   file:close(File).
 
 
-read_header(File) ->
-  Options = read_header_lines(File, []),
-  {ok, Offset} = file:position(File, cur),
-  {ok, Options, Offset}.
-
-read_header_lines(File, Acc) ->
-  {ok, HeaderLine} = file:read_line(File),
-  case parse_header_line(HeaderLine) of
-    {Key, Value} ->
-      read_header_lines(File, [{Key, Value}|Acc]);
-    ignore ->
-      read_header_lines(File, Acc);
-    stop ->
-      lists:reverse(Acc)
-  end.
-
-parse_header_line(HeaderLine) when is_binary(HeaderLine) ->
-  parse_header_line(erlang:binary_to_list(HeaderLine));
-
-parse_header_line("#" ++ _Comment) ->
-  ignore;
-
-parse_header_line("\n") ->
-  stop;
-
-parse_header_line(HeaderLine) when is_list(HeaderLine) ->
-  parse_header_line(string:strip(HeaderLine, right, $\n), nonewline).
-
-parse_header_line(HeaderLine, nonewline) ->
-  [KeyRaw, ValueRaw] = string:tokens(HeaderLine, ":"),
-
-  KeyStr = string:strip(KeyRaw, both),
-  ValueStr = string:strip(ValueRaw, both),
-
-  Key = erlang:list_to_atom(KeyStr),
-  Value = stockdb_format:parse_header_value(Key, ValueStr),
-
-  {Key, Value}.
 
 number_of_chunks(ChunkSize) ->
   timer:hours(24) div timer:seconds(ChunkSize) + 1.
 
 
 
-read_chunk_map(#dbstate{} = State) ->
-  ChunkMap = lists:map(fun({Number, Offset}) ->
-    try
-      Timestamp = read_timestamp_at_offset(Offset, State),
-      {Number, Timestamp, Offset}
-    catch
-      error:Reason ->
-        ?D({error_reading_timestamp, Offset, Reason}),
-        % FIXME: if opened for reading, use error_logger to inform and read, what is possible
-        % In other case, validate file
-        % write_chunk_offset(Number, 0, State),
-        {Number, 0, 0}
-    end
-  end, nonzero_chunks(State)),
-  {GoodChunkMap, BadChunks} = lists:partition(fun({_Number, Timestamp, Offset}) ->
-    Timestamp * 1 > 0 andalso Offset * 1 > 0
-  end, ChunkMap),
-  {State#dbstate{chunk_map = GoodChunkMap}, BadChunks}.
-
-
-
-
-nonzero_chunks(#dbstate{file = File, chunk_size = ChunkSize, chunk_map_offset = ChunkMapOffset}) ->
-  ChunkCount = number_of_chunks(ChunkSize),
-  {ok, ChunkMap} = file:pread(File, ChunkMapOffset, ChunkCount*?OFFSETLEN div 8),
-  Chunks1 = lists:zip(lists:seq(0,ChunkCount - 1), [Offset || <<Offset:?OFFSETLEN>> <= ChunkMap]),
-  [{N,Offset} || {N,Offset} <- Chunks1, Offset =/= 0].
 
 
 
@@ -341,9 +199,6 @@ bidask_delta_apply1(List1, List2) ->
 
 
 
-read_timestamp_at_offset(Offset, #dbstate{file = File, chunk_map_offset = ChunkMapOffset}) ->
-  {ok, Buffer} = file:pread(File, ChunkMapOffset + Offset, 8),
-  stockdb_format:decode_timestamp(Buffer).
 
 
 read_buffered_events(State) ->

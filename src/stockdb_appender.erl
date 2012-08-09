@@ -53,32 +53,7 @@ create_new_db(Path, Opts) ->
 
 
 open_existing_db(Path, _Opts) ->
-  {ok, File} = file:open(Path, [binary,write,read,raw]),
-  {ok, 0} = file:position(File, bof),
-
-  {ok, SavedDBOpts, ChunkMapOffset} = stockdb_raw:read_header(File),
-
-  {version, Version} = lists:keyfind(version, 1, SavedDBOpts),
-  Version == ?STOCKDB_VERSION orelse erlang:error({need_to_migrate, Path}),
-  {stock, Stock} = lists:keyfind(stock, 1, SavedDBOpts),
-  {date, Date} = lists:keyfind(date, 1, SavedDBOpts),
-  {scale, Scale} = lists:keyfind(scale, 1, SavedDBOpts),
-  {depth, Depth} = lists:keyfind(depth, 1, SavedDBOpts),
-  {chunk_size, ChunkSize} = lists:keyfind(chunk_size, 1, SavedDBOpts),
-  
-  State0 = #dbstate{
-    mode = append,
-    version = Version,
-    stock = Stock,
-    date = Date,
-    depth = Depth,
-    scale = Scale,
-    chunk_size = ChunkSize,
-    file = File,
-    chunk_map_offset = ChunkMapOffset
-  },
-
-  {StateChunkRead, BadChunks} = stockdb_raw:read_chunk_map(State0),
+  {StateChunkRead, BadChunks} = stockdb_reader:open_existing_db(Path, [binary,write,read,raw]),
   case BadChunks of
     [] -> 
       ok;
@@ -89,7 +64,6 @@ open_existing_db(Path, _Opts) ->
   end,
 
   StateReady = fast_forward(StateChunkRead),
-
   {ok, StateReady}.
 
 
