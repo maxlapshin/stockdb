@@ -1,14 +1,34 @@
+-module(stockdb_test_helper).
 %%% Testing stuff.
+-compile(export_all).
 -include_lib("eunit/include/eunit.hrl").
+-include("stockdb.hrl").
 
--define(TESTDIR, code:lib_dir(stockdb, test)).
 
--define(FIXTUREDIR, filename:join(?TESTDIR, "fixtures")).
--define(FIXTUREFILE(F), filename:join(?FIXTUREDIR, F)).
+fixturedir() ->
+  filename:join(testdir(), "fixtures").
 
--define(TEMPDIR, filename:join(?TESTDIR, "temp")).
--define(TEMPFILE(F), filename:join(?TEMPDIR, F)).
 
+fixturefile(F) ->
+  filename:join(fixturedir(), F).
+
+
+testdir() ->
+  code:lib_dir(stockdb, test).
+
+tempdir() ->
+  filename:join(testdir(), "temp").
+
+tempfile(F) ->
+  filename:join(tempdir(), F).
+
+
+chunk_content('109') -> chunk_109_content();
+chunk_content('110_1_t') -> chunk_110_content_1_trunc();
+chunk_content('110_1') -> chunk_110_content_1();
+chunk_content('110_2') -> chunk_110_content_2();
+chunk_content('112') -> chunk_112_content();
+chunk_content('full') -> full_content().
 
 %% Test content
 chunk_109_content() ->
@@ -54,30 +74,26 @@ full_content() ->
 
 %% Simply write events to file
 write_events_to_file(File, Events) ->
-  ok = filelib:ensure_dir(File),
-  {ok, S0} = stockdb_raw:open(File, [write, {stock, 'TEST'}, {date, {2012,7,25}}, {depth, 3}, {scale, 200}, {chunk_size, 300}]),
-  S1 = lists:foldl(fun(Event, State) ->
-        {ok, NextState} = stockdb_raw:append(Event, State),
-        NextState
-    end, S0, Events),
-  ok = stockdb_raw:close(S1).
+  file:delete(File),
+  append_events_to_file(File, Events).
 
 %% Simply append events to file
 append_events_to_file(File, Events) ->
-  {ok, S0} = stockdb_raw:open(File, [append, {stock, 'TEST'}, {date, {2012,7,25}}, {depth, 3}, {scale, 200}, {chunk_size, 300}]),
+  {ok, S0} = stockdb_appender:open(File, [{stock, 'TEST'}, {date, {2012,7,25}}, {depth, 3}, {scale, 200}, {chunk_size, 300}]),
   S1 = lists:foldl(fun(Event, State) ->
-        {ok, NextState} = stockdb_raw:append(Event, State),
+        {ok, NextState} = stockdb_appender:append(Event, State),
         NextState
     end, S0, Events),
   ok = stockdb_raw:close(S1).
 
 %% Comparing stuff.
 ensure_states_equal(State1, State2) ->
-  Elements = lists:seq(1, size(State1)) -- [3, 4, 5],
-  lists:foreach(fun(N) ->
-        % io:format("Comparing element ~w~n", [N]),
-        ?assertEqual(element(N, State1), element(N, State2))
-    end, Elements).
+  Names = record_info(fields, dbstate),
+  Blacklist = [file, buffer, buffer_end],
+  F = fun(State) -> [{K,V} || {K,V} <- lists:zip(Names, tl(tuple_to_list(State))), not lists:member(K,Blacklist)] end,
+  lists:zipwith(fun(El1, El2) ->
+    ?assertEqual(El1, El2)
+  end, F(State1), F(State2)).
 
 ensure_packets_equal({trade, _, _, _} = P1, {trade, _, _, _} = P2) ->
   ?assertEqual(P1, P2);
