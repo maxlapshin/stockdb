@@ -2,11 +2,12 @@
 -author('Max Lapshin <max@maxidoors.ru>').
 
 -include("../include/stockdb.hrl").
+-include_lib("eunit/include/eunit.hrl").
 -include("stockdb.hrl").
 -include("log.hrl").
 
 
--export([open/2, append/2]).
+-export([open/2, append/2, close/1]).
 
 
 open(Path, Opts) ->
@@ -16,10 +17,16 @@ open(Path, Opts) ->
     false ->
       create_new_db(Path, Opts)
   end.
-  
+
+
+close(#dbstate{file = File}) ->
+  file:close(File),
+  ok.
+
 
 %% Here we create skeleton for new DB
 create_new_db(Path, Opts) ->
+  filelib:ensure_dir(Path),
   {ok, File} = file:open(Path, [binary,write,exclusive,raw]),
   {ok, 0} = file:position(File, bof),
   ok = file:truncate(File),
