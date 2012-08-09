@@ -158,12 +158,12 @@ update_db_options(OldOptions, _NewOptions) ->
   OldOptions.
 
 buffer_data(#dbstate{} = State) ->
-  seek_utc(State#dbstate{buffer = undefined}, undefined).
+  seek_utc(undefined, State#dbstate{buffer = undefined}).
 
 
 %% @doc Set buffer to contain data from given UTC timestamp to EOF
-seek_utc(#dbstate{file = File, chunk_map = ChunkMap, chunk_map_offset = ChunkMapOffset, chunk_size = ChunkSize,
-    buffer = OldBuffer, buffer_end = OldBufEnd} = State, UTC) ->
+seek_utc(UTC, #dbstate{file = File, chunk_map = ChunkMap, chunk_map_offset = ChunkMapOffset, chunk_size = ChunkSize,
+    buffer = OldBuffer, buffer_end = OldBufEnd} = State) ->
 
   MinChunkStart = case UTC of
     undefined -> 0;
@@ -233,7 +233,7 @@ foldl(Fun, Acc0, FileName) ->
 % foldl_range: fold over entries in specified time range
 foldl_range(Fun, Acc0, FileName, {Start, End}) ->
   {ok, State0} = open(FileName, [read, binary]),
-  State1 = seek_utc(State0, Start),
+  State1 = seek_utc(Start, State0),
   FoldResult = case End of
     undefined ->
       do_foldl_full(Fun, Acc0, State1);
