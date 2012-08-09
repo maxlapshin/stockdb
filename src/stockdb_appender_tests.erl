@@ -42,7 +42,7 @@ write_append_test() ->
   {ok, S2} = stockdb_appender:open(File, []),
   ensure_states_equal(S1, S2),
   S3 = lists:foldl(fun(Event, State) ->
-        {ok, NextState} = stockdb_raw:append(Event, State),
+        {ok, NextState} = stockdb_appender:append(Event, State),
         NextState
     end, S2, chunk_content('110_2') ++ chunk_content('112')),
   ok = stockdb_raw:close(S3),
