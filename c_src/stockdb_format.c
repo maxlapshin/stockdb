@@ -261,7 +261,7 @@ read_one_row(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
       enif_make_list_from_array(env, bid, depth),
       enif_make_list_from_array(env, ask, depth)
     ),
-    enif_make_sub_binary(env, argv[0], shift, bin.size - shift)
+    enif_make_uint64(env, shift)
     );
 }
 

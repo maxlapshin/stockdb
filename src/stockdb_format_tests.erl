@@ -99,13 +99,13 @@ parse_header_value_test() ->
   ?assertEqual(17, stockdb_format:parse_header_value(version, "17")).
 
 
-c_encode_full_md_test() ->
+c_decode_full_md_test() ->
   Timestamp = 1343207118230, 
   Bid = [{1234, 715}, {1219, 201}, {1197, 1200}],
   Ask = [{1243, 601}, {1247, 1000}, {1260, 800}],
   Depth = length(Bid),
   Bin = stockdb_format:encode_full_md(Timestamp, Bid ++ Ask),
-  ?assertEqual({ok, {md, Timestamp, Bid, Ask}, <<1,2,3,4>>}, stockdb_format:read_one_row(<<Bin/binary, 1,2,3,4>>, Depth)),
+  ?assertEqual({ok, {md, Timestamp, Bid, Ask}, size(Bin)}, stockdb_format:read_one_row(<<Bin/binary, 1,2,3,4>>, Depth)),
   ?assertEqual({Timestamp, [Bid, Ask], <<1,2,3,4>>}, stockdb_format:decode_full_md(<<Bin/binary, 1,2,3,4>>, Depth)),
 
   N = 100000,
@@ -119,13 +119,13 @@ c_encode_full_md_test() ->
   ?debugFmt("Full  ~p: nif ~B, erl ~B", [N, timer:now_diff(T2,T1), timer:now_diff(T3,T2)]),
   ok.
 
-c_encode_delta_md_test() ->
+c_decode_delta_md_test() ->
   Timestamp = 15, 
   Bid = [{0, 5}, {-1, 20}, {4334, 1200}],
   Ask = [{12, 0}, {0, 0}, {1000, 800}],
   Depth = length(Bid),
   Bin = stockdb_format:encode_delta_md(Timestamp, Bid ++ Ask),
-  ?assertEqual({ok, {delta, Timestamp, Bid, Ask}, <<1,2,3,4>>}, stockdb_format:read_one_row(<<Bin/binary, 1,2,3,4>>, Depth)),
+  ?assertEqual({ok, {delta, Timestamp, Bid, Ask}, size(Bin)}, stockdb_format:read_one_row(<<Bin/binary, 1,2,3,4>>, Depth)),
   ?assertEqual({Timestamp, [Bid, Ask], <<1,2,3,4>>}, stockdb_format:decode_delta_md(<<Bin/binary, 1,2,3,4>>, Depth)),
 
   N = 100000,
@@ -140,7 +140,7 @@ c_encode_delta_md_test() ->
   ok.
 
 
-c_encode_two_delta_md_test() ->
+c_decode_two_delta_md_test() ->
   Timestamp1 = 1343207118230, 
   Bid1 = [{1234, 715}, {1219, 201}, {1197, 1200}],
   Ask1 = [{1243, 601}, {1247, 1000}, {1260, 800}],
@@ -164,11 +164,11 @@ c_encode_two_delta_md_test() ->
   Bin = <<Bin1/binary, Bin2/binary>>,
   DBState = stockdb_raw:init_with_opts([{depth,Depth},{buffer,Bin}]),
   
-  ?assertEqual({ok, {md, Timestamp1, Bid1, Ask1}, Bin2}, stockdb_format:read_one_row(Bin, Depth)),
+  ?assertEqual({ok, {md, Timestamp1, Bid1, Ask1}, size(Bin1)}, stockdb_format:read_one_row(Bin, Depth)),
   {Event1,State2} = stockdb_raw:read_packet_from_buffer(DBState),
   ?assertEqual({md,Timestamp1,Bid1,Ask1}, Event1),
   MD = {md, Timestamp1, Bid1, Ask1},
-  ?assertEqual({ok, {md, Timestamp2_, Bid2_, Ask2_}, <<>>}, stockdb_format:read_one_row(Bin2, Depth, MD)),
+  ?assertEqual({ok, {md, Timestamp2_, Bid2_, Ask2_}, size(Bin2)}, stockdb_format:read_one_row(Bin2, Depth, MD)),
 
   {Event2,_} = stockdb_raw:read_packet_from_buffer(State2),
   ?assertEqual({md,Timestamp2_,Bid2_,Ask2_}, Event2),
@@ -176,10 +176,12 @@ c_encode_two_delta_md_test() ->
   
   N = 100000,
   L = lists:seq(1,N),
+  Bin1Size = size(Bin1),
+  Bin2Size = size(Bin2),
   T1 = erlang:now(),
   [begin
-    {ok, {md,_,_,_} = MD, Bin2} = stockdb_format:read_one_row(Bin, Depth),
-    {ok, {md,_,_,_}, <<>>} = stockdb_format:read_one_row(Bin2,Depth, MD)
+    {ok, {md,_,_,_} = MD, Bin1Size} = stockdb_format:read_one_row(Bin, Depth),
+    {ok, {md,_,_,_}, Bin2Size} = stockdb_format:read_one_row(Bin2,Depth, MD)
   end || _ <- L],
   T2 = erlang:now(),
   [begin
