@@ -5,41 +5,13 @@
 
 -include("log.hrl").
 -include_lib("eunit/include/eunit.hrl").
+-include("stockdb.hrl").
 
--export([open/2, restore_state/1, seek_utc/2, read_event/1, read_file/1, file_info/2, append/2, close/1]).
+-export([open/2, restore_state/1, seek_utc/2, read_event/1, read_file/1, file_info/2, close/1]).
 -export([foldl/3, foldl_range/4]).
 
 -export([init_with_opts/1, read_packet_from_buffer/1]).
 
--define(STOCKDB_OPTIONS, [
-    {version, 1},
-    {stock, undefined},
-    {date, utcdate()},
-    {depth, 10},
-    {scale, 100},
-    {chunk_size, 300} % seconds
-  ]).
--define(CHUNKUNITS, seconds). % This has to be function name in timer module
--define(OFFSETLEN, 32).
-
--record(dbstate, {
-    version,
-    file,
-    buffer,
-    buffer_end,
-    stock,
-    date,
-    depth,
-    scale,
-    chunk_size,
-    last_timestamp = 0,
-    last_bidask,
-    next_chunk_time = 0,
-    chunk_map_offset,
-    chunk_map = [],
-    daystart,
-    next_md_full = true
-  }).
 
 -define(PARSEOPT(OptName),
   parse_opts([{OptName, Value}|MoreOpts], State) ->
@@ -79,14 +51,14 @@ open(FileName, Options) ->
   FileExists = filelib:is_regular(FileName),
 
   case {Action, FileExists} of
-    {create, _} ->
-      create_new_db(FileName, FileOpts, StockDBOpts);
+    % {create, _} ->
+    %   create_new_db(FileName, FileOpts, StockDBOpts);
     {read, _} ->
-      open_existing_db(FileName, FileOpts, StockDBOpts);
-    {append, true} ->
-      open_existing_db(FileName, FileOpts, StockDBOpts);
-    {append, false} ->
-      create_new_db(FileName, FileOpts, StockDBOpts)
+      open_existing_db(FileName, FileOpts, StockDBOpts)
+    % {append, true} ->
+    %   open_existing_db(FileName, FileOpts, StockDBOpts);
+    % {append, false} ->
+    %   create_new_db(FileName, FileOpts, StockDBOpts)
   end.
 
 determine_action(FileOpts) ->
@@ -107,25 +79,6 @@ determine_action([], Modes, NonModes) ->
     Other -> erlang:error({unsupported_option_set, Other})
   end.
 
-%% Here we create skeleton for new DB
-create_new_db(FileName, FileOpts, GivenStockDBOpts) ->
-  {ok, File} = file:open(FileName, [binary|FileOpts]),
-  {ok, 0} = file:position(File, bof),
-  ok = file:truncate(File),
-
-  StockDBOpts = lists:ukeymerge(1,
-    lists:ukeysort(1, GivenStockDBOpts),
-    lists:ukeysort(1, ?STOCKDB_OPTIONS)),
-
-  {ok, ChunkMapOffset} = write_header(File, StockDBOpts),
-  {ok, _CMSize} = write_chunk_map(File, StockDBOpts),
-
-  State0 = parse_opts(StockDBOpts, #dbstate{}),
-
-  {ok, State0#dbstate{
-      file = File,
-      chunk_map_offset = ChunkMapOffset
-    }}.
 
 open_existing_db(FileName, FileOpts, GivenStockDBOpts) ->
   {ok, File} = file:open(FileName, [binary|FileOpts]),
@@ -168,7 +121,7 @@ seek_utc(UTC, #dbstate{file = File, chunk_map = ChunkMap, chunk_map_offset = Chu
   MinChunkStart = case UTC of
     undefined -> 0;
     Timestamp when is_integer(Timestamp) ->
-      Timestamp - timer:?CHUNKUNITS(ChunkSize)
+      Timestamp - timer:seconds(ChunkSize)
   end,
 
   BufStart = case OldBuffer of
@@ -296,33 +249,6 @@ close(#dbstate{file = File} = _State) ->
   file:close(File).
 
 
-append({trade, Timestamp, _ ,_} = Trade, #dbstate{next_chunk_time = NCT} = State) when Timestamp >= NCT ->
-  append(Trade, start_chunk(Timestamp, State));
-
-append({md, Timestamp, _, _} = MD, #dbstate{next_chunk_time = NCT} = State) when Timestamp >= NCT ->
-  append(MD, start_chunk(Timestamp, State));
-
-
-append({trade, Timestamp, Price, Volume}, #dbstate{scale = Scale} = State) ->
-  StorePrice = erlang:round(Price * Scale),
-  append_trade({trade, Timestamp, StorePrice, Volume}, State);
-
-append({md, _Timestamp, _Bid, _Ask} = MD, #dbstate{scale = Scale, next_md_full = true} = State) ->
-  append_full_md(scale_md(MD, Scale), State);
-
-append({md, _Timestamp, _Bid, _Ask} = MD, #dbstate{scale = Scale} = State) ->
-  append_delta_md(scale_md(MD, Scale), State).
-
-
-write_header(File, StockDBOpts) ->
-  {ok, 0} = file:position(File, 0),
-  ok = file:write(File, <<"#!/usr/bin/env stockdb\n">>),
-  lists:foreach(fun({Key, Value}) ->
-        ok = file:write(File, [io_lib:print(Key), ": ", stockdb_format:format_header_value(Key, Value), "\n"])
-    end, StockDBOpts),
-  ok = file:write(File, "\n"),
-  file:position(File, cur).
-
 read_header(File) ->
   Options = read_header_lines(File, []),
   {ok, Offset} = file:position(File, cur),
@@ -363,17 +289,8 @@ parse_header_line(HeaderLine, nonewline) ->
   {Key, Value}.
 
 number_of_chunks(ChunkSize) ->
-  timer:hours(24) div timer:?CHUNKUNITS(ChunkSize) + 1.
+  timer:hours(24) div timer:seconds(ChunkSize) + 1.
 
-write_chunk_map(File, StockDBOpts) ->
-  ChunkSize = proplists:get_value(chunk_size, StockDBOpts),
-  ChunkCount = number_of_chunks(ChunkSize),
-
-  ChunkMap = [<<0:?OFFSETLEN>> || _ <- lists:seq(1, ChunkCount)],
-  Size = ?OFFSETLEN * ChunkCount,
-
-  ok = file:write(File, ChunkMap),
-  {ok, Size}.
 
 read_chunk_map(#dbstate{} = State) ->
   ChunkMap = lists:map(fun({Number, Offset}) ->
@@ -383,7 +300,9 @@ read_chunk_map(#dbstate{} = State) ->
           catch
             error:Reason ->
               ?D({error_reading_timestamp, Offset, Reason}),
-              write_chunk_offset(Number, 0, State),
+              % FIXME: if opened for reading, use error_logger to inform and read, what is possible
+              % In other case, validate file
+              % write_chunk_offset(Number, 0, State),
               {Number, 0, 0}
           end
     end, nonzero_chunks(State)),
@@ -407,9 +326,6 @@ nonzero_chunks(#dbstate{file = File, chunk_size = ChunkSize, chunk_map_offset = 
   lists:reverse(ReversedResult).
 
 
-daystart(Date) ->
-  DaystartSeconds = calendar:datetime_to_gregorian_seconds({Date, {0,0,0}}) - calendar:datetime_to_gregorian_seconds({{1970,1,1}, {0,0,0}}),
-  DaystartSeconds * 1000.
 
 utc_to_daystart(UTC) ->
   DayLength = timer:hours(24),
@@ -417,85 +333,7 @@ utc_to_daystart(UTC) ->
   UTC - DayTail.
 
 
-start_chunk(Timestamp, #dbstate{daystart = undefined, date = Date} = State) ->
-  start_chunk(Timestamp, State#dbstate{daystart = daystart(Date)});
-
-start_chunk(Timestamp, State) ->
-  #dbstate{
-    daystart = Daystart,
-    chunk_size = ChunkSize,
-    chunk_map = ChunkMap} = State,
-
-  ChunkSizeMs = timer:?CHUNKUNITS(ChunkSize),
-  ChunkNumber = (Timestamp - Daystart) div ChunkSizeMs,
-
-  % sanity check
-  (Timestamp - Daystart) < timer:hours(24) orelse erlang:error({not_this_day, Timestamp}),
-
-  ChunkOffset = current_chunk_offset(State),
-  write_chunk_offset(ChunkNumber, ChunkOffset, State),
-
-  NextChunkTime = Daystart + ChunkSizeMs * (ChunkNumber + 1),
-
-  Chunk = {ChunkNumber, Timestamp, ChunkOffset},
-  % ?D({new_chunk, Chunk}),
-  State#dbstate{
-    chunk_map = ChunkMap ++ [Chunk],
-    next_chunk_time = NextChunkTime,
-    next_md_full = true}.
  
-current_chunk_offset(#dbstate{file = File, chunk_map_offset = ChunkMapOffset} = _State) ->
-  {ok, EOF} = file:position(File, eof),
-  _ChunkOffset = EOF - ChunkMapOffset.
-
-write_chunk_offset(ChunkNumber, ChunkOffset, #dbstate{file = File, chunk_map_offset = ChunkMapOffset} = _State) ->
-  ByteOffsetLen = ?OFFSETLEN div 8,
-  ok = file:pwrite(File, ChunkMapOffset + ChunkNumber*ByteOffsetLen, <<ChunkOffset:?OFFSETLEN/integer>>).
-
-
-append_full_md({md, Timestamp, Bid, Ask}, #dbstate{depth = Depth, file = File} = State) ->
-  BidAsk = [setdepth(Bid, Depth), setdepth(Ask, Depth)],
-  Data = stockdb_format:encode_full_md(Timestamp, BidAsk),
-  {ok, _EOF} = file:position(File, eof),
-  ok = file:write(File, Data),
-  {ok, State#dbstate{
-      last_timestamp = Timestamp,
-      last_bidask = BidAsk,
-      next_md_full = false}
-  }.
-
-append_delta_md({md, Timestamp, Bid, Ask}, #dbstate{depth = Depth, file = File, last_timestamp = LastTS, last_bidask = LastBA} = State) ->
-  BidAsk = [setdepth(Bid, Depth), setdepth(Ask, Depth)],
-  BidAskDelta = bidask_delta(LastBA, BidAsk),
-  Data = stockdb_format:encode_delta_md(Timestamp - LastTS, BidAskDelta),
-  {ok, _EOF} = file:position(File, eof),
-  ok = file:write(File, Data),
-  {ok, State#dbstate{
-      last_timestamp = Timestamp,
-      last_bidask = BidAsk}
-  }.
-
-append_trade({trade, Timestamp, Price, Volume}, #dbstate{file = File} = State) ->
-  Data = stockdb_format:encode_trade(Timestamp, Price, Volume),
-  {ok, _EOF} = file:position(File, eof),
-  ok = file:write(File, Data),
-  {ok, State#dbstate{last_timestamp = Timestamp}}.
-
-
-setdepth(_Quotes, 0) ->
-  [];
-setdepth([], Depth) ->
-  [{0, 0} || _ <- lists:seq(1, Depth)];
-setdepth([Q|Quotes], Depth) ->
-  [Q|setdepth(Quotes, Depth - 1)].
-
-bidask_delta([[_|_] = Bid1, [_|_] = Ask1], [[_|_] = Bid2, [_|_] = Ask2]) ->
-  [bidask_delta1(Bid1, Bid2), bidask_delta1(Ask1, Ask2)].
-
-bidask_delta1(List1, List2) ->
-  lists:zipwith(fun({Price1, Volume1}, {Price2, Volume2}) ->
-    {Price2 - Price1, Volume2 - Volume1}
-  end, List1, List2).
 
 bidask_delta_apply([[_|_] = Bid1, [_|_] = Ask1], [[_|_] = Bid2, [_|_] = Ask2]) ->
   [bidask_delta_apply1(Bid1, Bid2), bidask_delta_apply1(Ask1, Ask2)].
@@ -533,7 +371,7 @@ fast_forward(#dbstate{file = File, chunk_size = ChunkSize, chunk_map_offset = Ch
   end,
 
   Daystart = utc_to_daystart(LastChunkTimestamp),
-  ChunkSizeMs = timer:?CHUNKUNITS(ChunkSize),
+  ChunkSizeMs = timer:seconds(ChunkSize),
 
   LastState#dbstate{
     daystart = Daystart,
@@ -605,21 +443,11 @@ packet_from_mdentry(Timestamp, BidAsk, #dbstate{depth = Depth, scale = Scale}) -
   SAsk = if is_number(Scale) -> apply_scale(Ask, 1/Scale); true -> Ask end,
   {md, Timestamp, SBid, SAsk}.
 
-apply_scale(PVList, Scale) when is_integer(Scale) ->
-  lists:map(fun({Price, Volume}) ->
-        {erlang:round(Price * Scale), Volume}
-    end, PVList);
-
 apply_scale(PVList, Scale) when is_float(Scale) ->
   lists:map(fun({Price, Volume}) ->
         {Price * Scale, Volume}
     end, PVList).
 
-
-scale_md({md, Timestamp, Bid, Ask}, Scale) ->
-  SBid = apply_scale(Bid, Scale),
-  SAsk = apply_scale(Ask, Scale),
-  {md, Timestamp, SBid, SAsk}.
 
 
 packet_timestamp({md, Timestamp, _Bid, _Ask}) -> Timestamp;
