@@ -1,14 +1,15 @@
 -module(stockdb_raw_tests).
--include("stockdb_test_content.hrl").
 
 -include_lib("eunit/include/eunit.hrl").
 -compile([export_all]).
 
 
+-import(stockdb_test_helper, [tempfile/1, write_events_to_file/2, append_events_to_file/2, ensure_packets_equal/2, chunk_content/1]).
+
 
 db_repair_test() ->
-  File = ?TEMPFILE("db-repair-test.temp"),
-  write_events_to_file(File, chunk_109_content() ++ chunk_110_content_1()),
+  File = tempfile("db-repair-test.temp"),
+  write_events_to_file(File, chunk_content('109') ++ chunk_content('110_1')),
 
   {ok, F} = file:open(File, [read, write]),
   {ok, _} = file:position(F, {eof, -1}),
@@ -18,13 +19,13 @@ db_repair_test() ->
   {ok, S1} = stockdb_raw:open(File, [read]),
   ?assertThrow({truncate_failed, _}, stockdb_raw:restore_state(S1)),
 
-  append_events_to_file(File, chunk_110_content_2() ++ chunk_112_content()),
+  append_events_to_file(File, chunk_content('110_2') ++ chunk_content('112')),
 
   {ok, FileEvents} = stockdb_raw:read_file(File),
   lists:zipwith(fun(Expected, Read) ->
         ensure_packets_equal(Expected, Read)
     end,
-    chunk_109_content() ++ chunk_110_content_1_trunc() ++ chunk_110_content_2() ++ chunk_112_content(),
+    chunk_content('109') ++ chunk_content('110_1_t') ++ chunk_content('110_2') ++ chunk_content('112'),
     FileEvents),
 
   ok = file:delete(File).
@@ -32,8 +33,8 @@ db_repair_test() ->
 
 
 foldl_test() ->
-  File = ?TEMPFILE("foldl-test.temp"),
-  write_events_to_file(File, full_content()),
+  File = tempfile("foldl-test.temp"),
+  write_events_to_file(File, chunk_content('full')),
 
   % Meaningless functions. We know that events are stored correctly,
   % so just test folding
@@ -46,17 +47,17 @@ foldl_test() ->
       AccIn - erlang:round(Price)
   end,
 
-  ?assertEqual(lists:foldl(CountFun, 0, full_content()),
+  ?assertEqual(lists:foldl(CountFun, 0, chunk_content('full')),
     stockdb_raw:foldl(CountFun, 0, File)),
 
-  ?assertEqual(lists:foldl(FoldFun2, 720, full_content()),
+  ?assertEqual(lists:foldl(FoldFun2, 720, chunk_content('full')),
     stockdb_raw:foldl(FoldFun2, 720, File)),
 
   ok = file:delete(File).
 
 foldl_range_test() ->
-  File = ?TEMPFILE("foldl-range-test.temp"),
-  write_events_to_file(File, full_content()),
+  File = tempfile("foldl-range-test.temp"),
+  write_events_to_file(File, chunk_content('full')),
 
   % Meaningless functions. We know that events are stored correctly,
   % so just test folding
@@ -70,10 +71,10 @@ foldl_range_test() ->
   end,
 
   Range1 = {undefined, 1343207500000},
-  Events1 = chunk_109_content() ++ chunk_110_content_1(),
+  Events1 = chunk_content('109') ++ chunk_content('110_1'),
 
   Range2 = {1343207500000, undefined},
-  Events2 = chunk_110_content_2() ++ chunk_112_content(),
+  Events2 = chunk_content('110_2') ++ chunk_content('112'),
 
   ?assertEqual(lists:foldl(CountFun, 0, Events1),
     stockdb_raw:foldl_range(CountFun, 0, File, Range1)),

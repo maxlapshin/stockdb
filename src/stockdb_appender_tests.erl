@@ -1,5 +1,7 @@
 -module(stockdb_appender_tests).
--include("stockdb_test_content.hrl").
+-include_lib("eunit/include/eunit.hrl").
+
+-import(stockdb_test_helper, [tempfile/1, fixturefile/1, ensure_states_equal/2, write_events_to_file/2, append_events_to_file/2, ensure_packets_equal/2, chunk_content/1]).
 
 
 file_create_test() ->
@@ -9,16 +11,14 @@ file_create_test() ->
     "TEST-20120725.600.15.200.stock").
 
 check_creation_params(DBOptions, FixtureFile) ->
-  ?assert(filelib:is_dir(?TESTDIR)),
-
-  File = ?TEMPFILE("creation-test.temp"),
+  File = tempfile("creation-test.temp"),
   file:delete(File),
   % ok = filelib:ensure_dir(File),
   % ok = file:write_file(File, "GARBAGE"),
 
   {ok, S} = stockdb_appender:open(File, DBOptions),
   ok = stockdb_appender:close(S),
-  db_no_regress(?FIXTUREFILE(FixtureFile), File),
+  db_no_regress(fixturefile(FixtureFile), File),
   ok = file:delete(File).
 
 db_no_regress(OldFile, NewFile) ->
@@ -28,7 +28,7 @@ db_no_regress(OldFile, NewFile) ->
 
 
 write_append_test() ->
-  File = ?TEMPFILE("write-append-test.temp"),
+  File = tempfile("write-append-test.temp"),
   ok = filelib:ensure_dir(File),
   file:delete(File),
 
@@ -36,7 +36,7 @@ write_append_test() ->
   S1 = lists:foldl(fun(Event, State) ->
         {ok, NextState} = stockdb_appender:append(Event, State),
         NextState
-    end, S0, chunk_109_content() ++ chunk_110_content_1()),
+    end, S0, chunk_content('109') ++ chunk_content('110_1')),
   ok = stockdb_appender:close(S1),
 
   {ok, S2} = stockdb_appender:open(File, []),
@@ -44,7 +44,7 @@ write_append_test() ->
   S3 = lists:foldl(fun(Event, State) ->
         {ok, NextState} = stockdb_raw:append(Event, State),
         NextState
-    end, S2, chunk_110_content_2() ++ chunk_112_content()),
+    end, S2, chunk_content('110_2') ++ chunk_content('112')),
   ok = stockdb_raw:close(S3),
 
   % {ok, S4_} = stockdb_raw:open(File, Options ++ [read]),
@@ -56,6 +56,6 @@ write_append_test() ->
   lists:zipwith(fun(Expected, Read) ->
         ensure_packets_equal(Expected, Read)
     end,
-    chunk_109_content() ++ chunk_110_content_1() ++ chunk_110_content_2() ++ chunk_112_content(),
+    chunk_content('109') ++ chunk_content('110_1') ++ chunk_content('110_2') ++ chunk_content('112'),
     FileEvents),
   ok = file:delete(File).

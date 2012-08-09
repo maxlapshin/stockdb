@@ -11,7 +11,7 @@
 -export([foldl/3, foldl_range/4]).
 
 -export([init_with_opts/1, read_packet_from_buffer/1]).
--export([number_of_chunks/1, read_header/1, read_chunk_map/1]).
+-export([number_of_chunks/1, read_header/1, read_chunk_map/1, read_buffered_events/1, utc_to_daystart/1]).
 
 -define(PARSEOPT(OptName),
   parse_opts([{OptName, Value}|MoreOpts], State) ->

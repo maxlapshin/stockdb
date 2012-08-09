@@ -1,14 +1,34 @@
+-module(stockdb_test_helper).
 %%% Testing stuff.
+-compile(export_all).
 -include_lib("eunit/include/eunit.hrl").
 
--define(TESTDIR, code:lib_dir(stockdb, test)).
 
--define(FIXTUREDIR, filename:join(?TESTDIR, "fixtures")).
--define(FIXTUREFILE(F), filename:join(?FIXTUREDIR, F)).
 
--define(TEMPDIR, filename:join(?TESTDIR, "temp")).
--define(TEMPFILE(F), filename:join(?TEMPDIR, F)).
+fixturedir() ->
+  filename:join(testdir(), "fixtures").
 
+
+fixturefile(F) ->
+  filename:join(fixturedir(), F).
+
+
+testdir() ->
+  code:lib_dir(stockdb, test).
+
+tempdir() ->
+  filename:join(testdir(), "temp").
+
+tempfile(F) ->
+  filename:join(tempdir(), F).
+
+
+chunk_content('109') -> chunk_109_content();
+chunk_content('110_1_t') -> chunk_110_content_1_trunc();
+chunk_content('110_1') -> chunk_110_content_1();
+chunk_content('110_2') -> chunk_110_content_2();
+chunk_content('112') -> chunk_112_content();
+chunk_content('full') -> full_content().
 
 %% Test content
 chunk_109_content() ->
