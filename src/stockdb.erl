@@ -28,7 +28,7 @@
 %        File API
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-%-spec open(Path::nonempty_string()) -> {ok, pid()} | {error, Reason::term()}.
+-spec open(Path::file:filename(), [open_options()]) -> {ok, stockdb()} | {error, Reason::term()}.
 open(Path, Modes) ->
   gen_server:start_link(stockdb_instance, {Path, Modes}, []).
 
