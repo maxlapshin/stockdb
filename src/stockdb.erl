@@ -29,8 +29,13 @@
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 -spec open(Path::file:filename(), [open_options()]) -> {ok, stockdb()} | {error, Reason::term()}.
-open(Path, Modes) ->
-  gen_server:start_link(stockdb_instance, {Path, Modes}, []).
+open(Path, Options) ->
+  case lists:member(raw, Options) of
+    true ->
+      stockdb_raw:open(Path, [raw|Options]);
+    false ->
+      gen_server:start_link(stockdb_instance, {Path, Options}, [])
+  end.
 
 %% Proxy requests to instance
 close(Pid) ->
