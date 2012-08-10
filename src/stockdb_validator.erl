@@ -9,7 +9,7 @@
 
 
 validate(#dbstate{path = Path, chunk_map = [], chunk_map_offset = ChunkMapOffset, chunk_size = ChunkSize} = State) ->
-  ChunkCount = stockdb_raw:number_of_chunks(ChunkSize),
+  ChunkCount = ?NUMBER_OF_CHUNKS(ChunkSize),
   ChunkMapSize = ChunkCount*?OFFSETLEN div 8,
   GoodFileSize = ChunkMapOffset + ChunkMapSize,
   case file:read_file_info(Path) of
@@ -70,7 +70,7 @@ validate_chunk(Chunk, Offset, #dbstate{last_md = MD, depth = Depth} = State) ->
     {ok, {trade, TS, _, _}, Rest} ->
       PacketSize = erlang:byte_size(Chunk) - erlang:byte_size(Rest),
       validate_chunk(Rest, Offset + PacketSize, State#dbstate{last_timestamp = TS});
-    {error, Reason} ->
+    {error, _Reason} ->
       %error(Reason),
       {error, State, Offset}
   end.

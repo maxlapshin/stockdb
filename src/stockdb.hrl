@@ -35,3 +35,6 @@
   ]).
 
 -define(OFFSETLEN, 32).
+
+-define(NUMBER_OF_CHUNKS(ChunkSize),
+  timer:hours(24) div timer:seconds(ChunkSize) + 1).

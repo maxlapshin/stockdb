@@ -99,11 +99,6 @@ buffer_data(#dbstate{file = File, chunk_map_offset = ChunkMapOffset} = State) ->
   % return state with buffer set
   State#dbstate{buffer = Buffer}.
 
-%% @doc Close file to make state self-sufficient
-close(#dbstate{file = File} = State) ->
-  ok = file:close(File),
-  {ok, State#dbstate{file = undefined}}.
-
 
 %% @doc read file info
 file_info(FileName, Fields) ->
@@ -116,7 +111,7 @@ file_info(FileName, Fields) ->
       (presence) ->
         ChunkSize = proplists:get_value(chunk_size, SavedDBOpts),
         NZChunks = nonzero_chunks(#dbstate{file=File, chunk_map_offset = ChunkMapOffset, chunk_size = ChunkSize}),
-        {stockdb_raw:number_of_chunks(ChunkSize), [N || {N, _} <- NZChunks]};
+        {?NUMBER_OF_CHUNKS(ChunkSize), [N || {N, _} <- NZChunks]};
       (Field) ->
         proplists:get_value(Field, SavedDBOpts)
     end, Fields),
@@ -181,7 +176,7 @@ read_chunk_map(#dbstate{} = State) ->
 
 %% @doc Read raw chunk map and return {Number, Offset} list for chunks containing data
 nonzero_chunks(#dbstate{file = File, chunk_size = ChunkSize, chunk_map_offset = ChunkMapOffset}) ->
-  ChunkCount = stockdb_raw:number_of_chunks(ChunkSize),
+  ChunkCount = ?NUMBER_OF_CHUNKS(ChunkSize),
   {ok, ChunkMap} = file:pread(File, ChunkMapOffset, ChunkCount*?OFFSETLEN div 8),
   Chunks1 = lists:zip(lists:seq(0,ChunkCount - 1), [Offset || <<Offset:?OFFSETLEN>> <= ChunkMap]),
   [{N,Offset} || {N,Offset} <- Chunks1, Offset =/= 0].

@@ -111,7 +111,7 @@ write_header(File, #dbstate{chunk_size = CS, date = Date, depth = Depth, scale =
 
 
 write_chunk_map(File, #dbstate{chunk_size = ChunkSize}) ->
-  ChunkCount = stockdb_raw:number_of_chunks(ChunkSize),
+  ChunkCount = ?NUMBER_OF_CHUNKS(ChunkSize),
 
   ChunkMap = [<<0:?OFFSETLEN>> || _ <- lists:seq(1, ChunkCount)],
   Size = ?OFFSETLEN * ChunkCount,
