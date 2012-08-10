@@ -20,7 +20,7 @@
 %% Reading existing data
 -export([open_read/2, events/1, events/2]).
 %% Iterator API
--export([init_reader/2, read_event/1]).
+-export([init_reader/2, init_reader/3, read_event/1]).
 
 %% Run tests
 -export([run_tests/0]).
@@ -74,12 +74,17 @@ info(Stock, Date, Fields) ->
 %% @doc Read all events for stock and date
 -spec events(stock(), date()) -> {ok, list(trade() | market_data())}.
 events(Stock, Date) ->
-  stockdb_reader:read_file(stockdb_fs:path(Stock, Date)).
+  {ok, Iterator} = init_reader(Stock, Date, []),
+  events(Iterator);
 
 %% @doc Just read all events from stockdb
--spec events(stockdb()) -> {ok, list(trade() | market_data())}.
-events(Stockdb) ->
-  stockdb_reader:read_file(Stockdb).
+-spec events(stockdb()|iterator()) -> {ok, list(trade() | market_data())}.
+events(#dbstate{} = Stockdb) ->
+  {ok, Iterator} = init_reader(Stockdb, []),
+  events(Iterator);
+
+events(Iterator) ->
+  stockdb_iterator:all_events(Iterator).
 
 %% @doc Init iterator over opened stockdb
 % Options: 
@@ -90,6 +95,13 @@ events(Stockdb) ->
 init_reader(Stockdb, Filters) ->
   {ok, Iterator} = stockdb_iterator:init(Stockdb),
   {ok, apply_filters(Iterator, Filters)}.
+
+%% @doc Shortcut for opening iterator on stock-date pair
+-spec init_reader(stock(), date(), list(reader_option())) -> {ok, iterator()} | {error, Reason::term()}.
+init_reader(Stock, Date, Filters) ->
+  {ok, Stockdb} = open_read(Stock, Date),
+  init_reader(Stockdb, Filters).
+
 
 apply_filter(Iterator, false) -> Iterator;
 apply_filter(Iterator, {range, Start, End}) ->
