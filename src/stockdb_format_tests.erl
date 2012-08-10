@@ -111,6 +111,7 @@ c_decode_full_md_with_scale_test() ->
   {ok, {md, Timestamp, Bid1, Ask1}, <<>>} = stockdb_format:read_one_row(Bin, Depth, undefined, Scale),
   ?assertEqual(Bid, [{round(P*Scale),V} || {P,V} <- Bid1]),
   ?assertEqual(Ask, [{round(P*Scale),V} || {P,V} <- Ask1]),
+  ensure_error_on_shorter_bin(fun(B) -> stockdb_format:read_one_row(B, Depth, undefined, Scale) end, Bin),
   ok.
   
 
@@ -122,6 +123,7 @@ c_decode_full_md_test() ->
   Bin = stockdb_format:encode_full_md(Timestamp, Bid ++ Ask),
   ?assertEqual({ok, {md, Timestamp, Bid, Ask}, <<1,2,3,4>>}, stockdb_format:read_one_row(<<Bin/binary, 1,2,3,4>>, Depth)),
   ?assertEqual({Timestamp, [Bid, Ask], <<1,2,3,4>>}, stockdb_format:decode_full_md(<<Bin/binary, 1,2,3,4>>, Depth)),
+  ensure_error_on_shorter_bin(fun(B) -> stockdb_format:read_one_row(B, Depth) end, Bin),
 
   N = 100000,
   L = lists:seq(1,N),
@@ -141,6 +143,7 @@ c_decode_trade_test() ->
   Bin = stockdb_format:encode_trade(Timestamp, Price, Volume),
   ?assertEqual({ok, {trade, Timestamp, Price, Volume}, <<>>}, stockdb_format:read_one_row(Bin, 0)),
   ?assertEqual({ok, {trade, Timestamp, 12.34, Volume}, <<>>}, stockdb_format:read_one_row(Bin, 0, undefined, 100)),
+  ensure_error_on_shorter_bin(fun(B) -> stockdb_format:read_one_row(B, 0, undefined, 100) end, Bin),
   ok.
 
 c_decode_delta_md_test() ->
@@ -151,6 +154,7 @@ c_decode_delta_md_test() ->
   Bin = stockdb_format:encode_delta_md(Timestamp, Bid ++ Ask),
   ?assertEqual({ok, {delta, Timestamp, Bid, Ask}, <<1,2,3,4>>}, stockdb_format:read_one_row(<<Bin/binary, 1,2,3,4>>, Depth)),
   ?assertEqual({Timestamp, [Bid, Ask], <<1,2,3,4>>}, stockdb_format:decode_delta_md(<<Bin/binary, 1,2,3,4>>, Depth)),
+  ensure_error_on_shorter_bin(fun(B) -> stockdb_format:read_one_row(B, Depth) end, Bin),
 
   N = 100000,
   L = lists:seq(1,N),
@@ -242,5 +246,13 @@ c_decode_two_delta_md_test() ->
   %   {{md,_,_,_},_State2} = stockdb_raw:read_packet_from_buffer(State1)
   % end || _ <- L],
   T3 = erlang:now(),
-  ?debugFmt("Delta ~p: nif ~B, erl ~B", [N, timer:now_diff(T2,T1), timer:now_diff(T3,T2)]),
+  ?debugFmt("Two delta ~p: nif ~B, erl ~B", [N, timer:now_diff(T2,T1), timer:now_diff(T3,T2)]),
   ok.
+
+ensure_error_on_shorter_bin(_Fun, <<>>) ->
+  ok;
+ensure_error_on_shorter_bin(Fun, Bin) ->
+  ShorterLen = erlang:byte_size(Bin) - 1,
+  <<ShorterBin:ShorterLen/binary, _:1/binary>> = Bin,
+  ?assertMatch({{error, _}, _}, {Fun(ShorterBin), ShorterBin}),
+  ensure_error_on_shorter_bin(Fun, ShorterBin).
