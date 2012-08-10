@@ -102,6 +102,12 @@ buffer_data(#dbstate{file = File, chunk_map_offset = ChunkMapOffset} = State) ->
 
 %% @doc read file info
 file_info(FileName, Fields) ->
+  case filelib:is_regular(FileName) of
+    true -> get_file_info(FileName, Fields);
+    false -> undefined
+  end.
+
+get_file_info(FileName, Fields) ->
   {ok, File} = file:open(FileName, [read, binary]),
   {ok, 0} = file:position(File, bof),
 
