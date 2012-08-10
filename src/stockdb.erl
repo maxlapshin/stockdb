@@ -18,7 +18,7 @@
 -export([open_read/2, open_append/3]).
 -export([append/2]).
 -export([chunks/1]).
--export([read_events/1, init_reader/2, read_event/1]).
+-export([read_events/1, read_events/2, init_reader/2, read_event/1]).
 -export([close/1]).
 
 %% Run tests
@@ -77,6 +77,11 @@ append(Stockdb, Event) ->
 chunks(_Stockdb) ->
   [].
 
+
+%% @doc Read all events for stock and date
+-spec read_events(stock(), date()) -> {ok, list(trade() | market_data())}.
+read_events(Stock, Date) ->
+  stockdb_reader:read_file(stockdb_fs:path(Stock, Date)).
 
 %% @doc Just read all events from stockdb
 -spec read_events(stockdb()) -> {ok, list(trade() | market_data())}.
