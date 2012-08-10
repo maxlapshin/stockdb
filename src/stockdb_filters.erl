@@ -42,7 +42,8 @@ candle(#md{timestamp = Timestamp} = MD, #candle{granulation = Granulation, curre
   {Events, Candle1#candle{current_segment = Timestamp div Granulation, open = MD}};
 
 candle(eof, #candle{} = Candle) ->
-  flush_segment(Candle);
+  {Events, NewCandle} = flush_segment(Candle),
+  {Events ++ [eof], NewCandle};
 
 candle(#md{} = MD, #candle{} = Candle) ->
   {[], accumulate_md(MD, Candle)}.
@@ -55,11 +56,13 @@ flush_segment(#candle{open = Open, high_ask = HighAsk, low_bid = LowBid, close =
 
 accumulate_md(#md{bid = [{Bid,_}|_], ask = [{Ask,_}|_]} = MD, #candle{high_ask = HighAsk, low_bid = LowBid} = Candle) ->
   HA1 = case HighAsk of
+    undefined -> MD;
     #md{ask = [{Ask1,_}|_]} when Ask > Ask1 -> MD;
     _ -> HighAsk
   end,
 
   LB1 = case LowBid of
+    undefined -> MD;
     #md{bid = [{Bid1,_}|_]} when Bid < Bid1 -> MD;
     _ -> LowBid
   end,
