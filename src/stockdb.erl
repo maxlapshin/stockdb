@@ -75,7 +75,7 @@ info(Stock, Date, Fields) ->
 -spec events(stock(), date()) -> {ok, list(trade() | market_data())}.
 events(Stock, Date) ->
   {ok, Iterator} = init_reader(Stock, Date, []),
-  events(Iterator);
+  events(Iterator).
 
 %% @doc Just read all events from stockdb
 -spec events(stockdb()|iterator()) -> {ok, list(trade() | market_data())}.
