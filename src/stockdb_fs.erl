@@ -27,7 +27,7 @@ root() ->
 
 %% @doc Return path to DB file for given stock and date
 path(wildcard, Date) ->
-  path("*", Date);
+  path('*', Date);
 
 path(Stock, Date) when is_atom(Stock) ->
   path({stock, Stock}, Date);
