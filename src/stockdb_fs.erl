@@ -29,9 +29,12 @@ root() ->
 path(wildcard, Date) ->
   path("*", Date);
 
-path(Stock, Date) ->
+path(Stock, Date) when is_atom(Stock) ->
+  path({stock, Stock}, Date);
+
+path({Type, Stock}, Date) ->
   BaseName = [Stock, "-", filename_timestamp(Date), ".stock"],
-  filename:join([root(), stock, BaseName]).
+  filename:join([root(), Type, BaseName]).
 
 
 
@@ -120,6 +123,9 @@ filename_timestamp(Date) ->
   filename_timestamp(parse_date(Date)).
 
 %% @doc Parse string with date. Argument may be in form YYYY-MM-DD or YYYY/MM/DD
+parse_date({Y,M,D}) ->
+  {Y,M,D};
+
 parse_date(DateString) when is_list(DateString) andalso length(DateString) == 10 ->
   [Y, M, D] = lists:map(fun erlang:list_to_integer/1, string:tokens(DateString, "-/.")),
   {Y, M, D}.
