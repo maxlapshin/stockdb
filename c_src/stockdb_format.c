@@ -22,35 +22,40 @@ static inline void bit_init(struct BitReader *br, unsigned char *bytes, unsigned
   br->offset = 0;
 }
 
-static inline unsigned char bit_look(struct BitReader *br) {
+static inline int bit_look(struct BitReader *br, unsigned char *bit) {
   unsigned offset = br->offset;
   if(br->offset == br->size*8) return 0;
-  return (br->bytes[offset / 8] >> (7 - (offset % 8))) & 1;
+  *bit = (br->bytes[offset / 8] >> (7 - (offset % 8))) & 1;
+  return 1;
 }
 
-static inline unsigned char bit_get(struct BitReader *br) {
-  unsigned char bit = bit_look(br);
+static inline int bit_get(struct BitReader *br, unsigned char *bit) {
+  if(!bit_look(br, bit)) return 0;
   br->offset++;
   // fprintf(stderr, "Bit: %d\r\n", bit);
-  return bit;
+  return 1;
 }
 
-static inline uint64_t bits_get(struct BitReader *br, int bits) {
+static inline int bits_get(struct BitReader *br, int bits, uint64_t *result_p) {
   uint64_t result = 0;
   if(br->offset + bits > br->size*8) return 0;
   
   if(bits <= 8 && br->offset & 0x7) {
     while(bits) {
-      result = (result << 1) | bit_get(br);
+      unsigned char bit;
+      if(!bit_get(br, &bit)) return 0;
+      result = (result << 1) | bit;
       bits--;
     }
-    return result;
+    *result_p = result;
+    return 1;
   }
   
   if(bits == 32 && br->offset % 8 == 0) {
     result = ntohl(*(uint32_t *)(&br->bytes[br->offset / 8]));
     br->offset += 32;
-    return result;
+    *result_p = result;
+    return 1;
   }
 
   while(bits) {
@@ -60,11 +65,14 @@ static inline uint64_t bits_get(struct BitReader *br, int bits) {
       br->offset += 8;
     }
     if(bits) {
-      result = (result << 1) | bit_get(br);
+      unsigned char bit;
+      if(!bit_get(br, &bit)) return 0;
+      result = (result << 1) | bit;
       bits--;
     }
   }
-  return result;
+  *result_p = result;
+  return 1;
 }
 
 static inline void bits_align(struct BitReader *br) {
@@ -80,29 +88,32 @@ static inline unsigned bits_byte_offset(struct BitReader *br) {
 }
 
 
-static inline uint64_t leb128_decode_unsigned(struct BitReader *br) {
+static inline int leb128_decode_unsigned(struct BitReader *br, uint64_t *result_p) {
   uint64_t result = 0;
   int shift = 0;
-  int move_on = 1;
+  unsigned char move_on = 1;
   while(move_on) {
-    move_on = bit_get(br);
-    uint64_t chunk = bits_get(br, 7);
+    if(!bit_get(br, &move_on)) return 0;
+    uint64_t chunk;
+    if(!bits_get(br, 7, &chunk)) return 0;
     result |= (chunk << shift);
     // fprintf(stderr, "ULeb: %d, %llu, %llu\r\n", move_on, chunk, result);
     shift += 7;
   }
-  return result;
+  *result_p = result;
+  return 1;
 }
 
-static inline uint64_t leb128_decode_signed(struct BitReader *br) {
+static inline int leb128_decode_signed(struct BitReader *br, int64_t *result_p) {
   int64_t result = 0;
   int shift = 0;
-  int move_on = 1;
-  int sign = 0;
+  unsigned char move_on = 1;
+  unsigned char sign = 0;
   while(move_on) {
-    move_on = bit_get(br);
-    sign = bit_look(br);
-    uint64_t chunk = bits_get(br, 7); 
+    if(!bit_get(br, &move_on)) return 0;
+    if(!bit_look(br, &sign)) return 0;
+    uint64_t chunk;
+    if(!bits_get(br, 7, &chunk)) return 0;
     result |= (chunk << shift);
     // fprintf(stderr, "SLeb: %d, %llu, %lld\r\n", move_on, chunk, sign ? result | - (1 << shift) :  result);
     shift += 7;
@@ -110,15 +121,19 @@ static inline uint64_t leb128_decode_signed(struct BitReader *br) {
   if(sign) {
     result |= - (1 << shift);
   }
-  return result;
+  *result_p = result;
+  return 1;
 }
 
 
-static inline int64_t decode_delta(struct BitReader *br) {
-  if(bit_get(br)) {
-    return leb128_decode_signed(br);
+static int decode_delta(struct BitReader *br, int64_t *result) {
+  unsigned char delta;
+  if(!bit_get(br, &delta)) return 0;
+  if(delta) {
+    return leb128_decode_signed(br, result);
   } else {
-    return 0;
+    *result = 0;
+    return 1;
   }
 }
 
@@ -140,16 +155,16 @@ read_one_row(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
   struct BitReader br;
   bit_init(&br, bin.data, bin.size);
   
-  ErlNifUInt64 timestamp;
+  uint64_t timestamp;
   
   const ERL_NIF_TERM *prev;
 
-  int32_t bid_prices[depth];
-  uint32_t bid_sizes[depth];
+  int64_t bid_prices[depth];
+  uint64_t bid_sizes[depth];
   ERL_NIF_TERM bid[depth];
 
-  int32_t ask_prices[depth];
-  uint32_t ask_sizes[depth];
+  int64_t ask_prices[depth];
+  uint64_t ask_sizes[depth];
   ERL_NIF_TERM ask[depth];
   int i;
   
@@ -161,20 +176,34 @@ read_one_row(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
   
   
   int scale = 0;
+  
   if(argc == 4) {
-    if(!enif_get_int(env, argv[3], &scale)) scale = 0;
+    if(!enif_get_int(env, argv[3], &scale)) make_error(env, "not_integer_scale");
   }
   
-  if(bit_get(&br)) {  // Decode full coded string
-    if(bit_get(&br)) { // this means trade encoded
-      if(bin.size < 8 + 2*4) return make_error(env, "more");
+  unsigned char full_or_delta;
+  if(!bit_get(&br, &full_or_delta)) return enif_make_badarg(env);
+  
+  
+  if(full_or_delta) {  // Decode full coded string
+    unsigned char trade_or_md;
+    if(!bit_get(&br, &trade_or_md)) return enif_make_badarg(env);
+
+    if(trade_or_md) { // this means trade encoded
+      if(bin.size < 8 + 2*4) return make_error(env, "more_data_for_trade");
       
       tag = enif_make_atom(env, "trade");
-      timestamp = bits_get(&br, 62);
+      if(!bits_get(&br, 62, &timestamp)) return make_error(env, "more_data_for_trade_ts");
       
-      int32_t p = (int32_t)bits_get(&br, 32);
+      uint64_t p;
+      if(!bits_get(&br, 32, &p)) return make_error(env, "more_data_for_trade_price");
+      
       ERL_NIF_TERM price = scale ? enif_make_double(env, p*1.0 / scale) : enif_make_int(env, p);
-      ERL_NIF_TERM volume = enif_make_uint(env, (uint32_t)bits_get(&br, 32));
+      
+      
+      uint64_t v;
+      if(!bits_get(&br, 32, &v)) return make_error(env, "more_data_for_trade_volume");
+      ERL_NIF_TERM volume = enif_make_uint(env, v);
       shift = 8 + 2*4;
       return enif_make_tuple3(env,
         enif_make_atom(env, "ok"),
@@ -182,18 +211,18 @@ read_one_row(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
         enif_make_sub_binary(env, argv[0], shift, bin.size - shift)
         );
     }
-    if(bin.size < 8 + 2*2*depth*4) return make_error(env, "more");
+    if(bin.size < 8 + 2*2*depth*4) return make_error(env, "more_data_for_full_md");
     
     // Here is decoding of simply coded full string
     tag = enif_make_atom(env, "md");
-    timestamp = bits_get(&br, 62);
+    if(!bits_get(&br, 62, &timestamp)) return make_error(env, "more_data_for_md_ts");
     for(i = 0; i < depth; i++) {
-      bid_prices[i] = (int32_t)bits_get(&br, 32);
-      bid_sizes[i] = (uint32_t)bits_get(&br, 32);
+      if(!bits_get(&br, 32, (uint64_t *)&bid_prices[i])) return make_error(env, "more_data_for_md_bid");
+      if(!bits_get(&br, 32, (uint64_t *)&bid_sizes[i])) return make_error(env, "more_data_for_md_bid");
     }
     for(i = 0; i < depth; i++) {
-      ask_prices[i] = (int32_t)bits_get(&br, 32);
-      ask_sizes[i] = (uint32_t)bits_get(&br, 32);
+      if(!bits_get(&br, 32, (uint64_t *)&ask_prices[i])) return make_error(env, "more_data_for_md_ask");
+      if(!bits_get(&br, 32, (uint64_t *)&ask_sizes[i])) return make_error(env, "more_data_for_md_ask");
     }
   } else {
     unpacking_delta = 0;
@@ -208,14 +237,15 @@ read_one_row(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
       if(arity != 4) return make_error(env, "need_prev_arity_4");
     }
     
-    timestamp = leb128_decode_unsigned(&br);
+    if(!leb128_decode_unsigned(&br, (uint64_t *)&timestamp)) return make_error(env, "more_data_for_delta_ts");
+
     for(i = 0; i < depth; i++) {
-      bid_prices[i] = (int32_t)decode_delta(&br);
-      bid_sizes[i] = (uint32_t)decode_delta(&br);
+      if(!decode_delta(&br, (int64_t *)&bid_prices[i])) return make_error(env, "more_data_for_delta_bid");
+      if(!decode_delta(&br, (int64_t *)&bid_sizes[i])) return make_error(env, "more_data_for_delta_bid");
     }
     for(i = 0; i < depth; i++) {
-      ask_prices[i] = (int32_t)decode_delta(&br);
-      ask_sizes[i] = (uint32_t)decode_delta(&br);
+      if(!decode_delta(&br, (int64_t *)&ask_prices[i])) return make_error(env, "more_data_for_delta_ask");
+      if(!decode_delta(&br, (int64_t *)&ask_sizes[i])) return make_error(env, "more_data_for_delta_ask");
     }
     
     if(unpacking_delta) {
