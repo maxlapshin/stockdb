@@ -25,15 +25,21 @@ Appender
 
 Now lets explain, what is happening.
 
-# Open appender. Stock name should be a symbol, date should either erlang date {YYYY,MM,DD}, either a string "YYYY-MM-DD".
-# Don't forget to specify proper depth. If you skip it, default depth is 1 and you will save only best bid and best ask
-# Specify also {scale, 1000} option, if you want to store quotes with precision less than 1 cent. Stockdb stores your prices as int: round(Price*Scale)
-# Now append market data.
-# Market data is following: ```{md, UtcMilliseconds, [{L1BidPrice,L1BidSize},{L2BidPrice,L2BidSize}..], [{L1AskPrice,L2AskSize}..]}```
-# You can include ```-include_lib("stockdb/include/stockdb.hrl").``` to use ```#md{}``` and ```#trade{}``` records
+* Open appender. Stock name should be a symbol, date should either erlang date {YYYY,MM,DD}, either a string "YYYY-MM-DD".
+* Don't forget to specify proper depth. If you skip it, default depth is 1 and you will save only best bid and best ask
+* Specify also {scale, 1000} option, if you want to store quotes with precision less than 1 cent. Stockdb stores your prices as int: round(Price*Scale)
+* Now append market data.
+* Market data is following: ```{md, UtcMilliseconds, [{L1BidPrice,L1BidSize},{L2BidPrice,L2BidSize}..], [{L1AskPrice,L2AskSize}..]}```
+* You can include ```-include_lib("stockdb/include/stockdb.hrl").``` to use ```#md{}``` and ```#trade{}``` records
 
 Now take a look at db/stock folder. There you can see new file db/stock/NASDAQ.AAPL-2012-01-15.stock and now you can read back stocks from it.
 
 
 Reader
 -----
+
+The most simple way is just to read all daily events to replaying them
+
+    {ok, Events} = stockdb:events('NASDAQ.AAPL', "2012-01-15").
+
+But there are possible more enhanced ways of limiting amount of loaded data. Will be described soon.

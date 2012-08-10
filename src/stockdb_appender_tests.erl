@@ -26,6 +26,41 @@ db_no_regress(OldFile, NewFile) ->
   ?assertEqual(file:read_file(OldFile), file:read_file(NewFile)).
 
 
+append_bm_test() ->
+  File = tempfile("append-bm-test.temp"),
+  ok = filelib:ensure_dir(File),
+  file:delete(File),
+
+  Count = 80000,
+  Date = {2012,7,25},
+  StartTS = (calendar:datetime_to_gregorian_seconds({Date,{6,0,0}}) - calendar:datetime_to_gregorian_seconds({{1970,1,1}, {0,0,0}}))*1000,
+  {ok, S0} = stockdb_appender:open(File, [nosync, {stock, 'TEST'},{date, Date}, {depth, 1}, {scale, 100}]),
+  T1 = erlang:now(),
+  S1 = fill_records(S0, Count, 10, StartTS),
+  T2 = erlang:now(),
+  stockdb_appender:close(S1),
+  file:delete(File),
+  Delta = timer:now_diff(T2,T1),
+  ?debugFmt("Append benchmark: ~B in ~B ms, about ~B us per row", [Count, Delta div 1000, Delta div Count]),
+  ok.
+
+fill_records(S0, Count, _, _) when Count =< 0 ->
+  S0;
+
+fill_records(S0, Count, Step, TS) ->
+  {ok, S1} = stockdb:append({md, TS+0*Step, [{43.15, 50}], [{45.15, 50}]}, S0),
+  {ok, S2} = stockdb:append({md, TS+1*Step, [{43.09, 40}], [{45.05, 50}]}, S1),
+  {ok, S3} = stockdb:append({md, TS+2*Step, [{42.50, 20}], [{44.95, 20}]}, S2),
+  {ok, S4} = stockdb:append({md, TS+3*Step, [{42.05, 90}], [{43.15, 50}]}, S3),
+  {ok, S5} = stockdb:append({md, TS+4*Step, [{42.45, 50}], [{44.15, 40}]}, S4),
+  {ok, S6} = stockdb:append({md, TS+5*Step, [{41.55, 54}], [{44.15, 50}]}, S5),
+  {ok, S7} = stockdb:append({md, TS+6*Step, [{42.12, 10}], [{45.15, 30}]}, S6),
+  {ok, S8} = stockdb:append({md, TS+7*Step, [{42.80, 90}], [{43.15, 80}]}, S7),
+  {ok, S9} = stockdb:append({md, TS+8*Step, [{43.12, 20}], [{44.15, 50}]}, S8),
+  {ok, S_} = stockdb:append({md, TS+9*Step, [{43.45, 20}], [{45.15, 50}]}, S9),
+  fill_records(S_, Count - 10, Step, TS + 10*Step).
+
+
 
 write_append_test() ->
   File = tempfile("write-append-test.temp"),
