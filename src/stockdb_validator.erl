@@ -15,10 +15,10 @@ validate(#dbstate{path = Path, chunk_map = [], chunk_map_offset = ChunkMapOffset
   case file:read_file_info(Path) of
     {ok, #file_info{size = Size}} when Size > GoodFileSize ->
       error_logger:error_msg("Empty database ~s is longer than required size, truncating all records~n", [Path]),
-      % {ok, F} = file:open(Path, [write,read,binary,raw]),
-      % file:position(F, GoodFileSize),
-      % file:truncate(F),
-      % file:close(F),
+      {ok, F} = file:open(Path, [write,read,binary,raw]),
+      file:position(F, GoodFileSize),
+      file:truncate(F),
+      file:close(F),
       State;
     {ok, #file_info{size = Size}} when Size < GoodFileSize ->
       error_logger:error_msg("Empty database ~s is shorter and have broken chunk map, delete it~n", [Path]),
@@ -39,10 +39,10 @@ validate(#dbstate{path = Path, file = File, chunk_map = ChunkMap, chunk_map_offs
       State1_;
     {error, State1_, BadOffset} ->
       error_logger:error_msg("Database ~s is broken at offset ~B, truncating~n", [Path, BadOffset]),
-      % {ok, F} = file:open(Path, [write,read,binary,raw]),
-      % file:position(F, AbsOffset + BadOffset),
-      % file:truncate(F),
-      % file:close(F),
+      {ok, F} = file:open(Path, [write,read,binary,raw]),
+      file:position(F, AbsOffset + BadOffset),
+      file:truncate(F),
+      file:close(F),
       State1_
   end,
   
@@ -65,10 +65,12 @@ validate_chunk(<<>>, _, State) ->
 validate_chunk(Chunk, Offset, #dbstate{last_md = MD, depth = Depth} = State) ->
   case stockdb_format:read_one_row(Chunk, Depth, MD) of
     {ok, {md, TS, Bid, Ask} = NewMD, Rest} ->
-      validate_chunk(Rest, Offset + size(Chunk) - size(Rest), State#dbstate{last_md = NewMD, last_timestamp = TS, last_bidask = [Bid,Ask]});
-    {ok, {trade, _, _, _}, Rest} ->
-      validate_chunk(Rest, Offset + size(Chunk) - size(Rest), State);
+      PacketSize = erlang:byte_size(Chunk) - erlang:byte_size(Rest),
+      validate_chunk(Rest, Offset + PacketSize, State#dbstate{last_md = NewMD, last_timestamp = TS, last_bidask = [Bid,Ask]});
+    {ok, {trade, TS, _, _}, Rest} ->
+      PacketSize = erlang:byte_size(Chunk) - erlang:byte_size(Rest),
+      validate_chunk(Rest, Offset + PacketSize, State#dbstate{last_timestamp = TS});
     {error, Reason} ->
-      error(Reason),
+      %error(Reason),
       {error, State, Offset}
   end.

@@ -84,7 +84,7 @@ append_events_to_file(File, Events) ->
         {ok, NextState} = stockdb_appender:append(Event, State),
         NextState
     end, S0, Events),
-  ok = stockdb_raw:close(S1).
+  ok = stockdb:close(S1).
 
 %% Comparing stuff.
 ensure_states_equal(State1, State2) ->
