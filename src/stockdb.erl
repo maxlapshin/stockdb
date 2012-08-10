@@ -10,25 +10,20 @@
 %% Application configuration
 -export([get_value/1, get_value/2]).
 
-%% DB range processing
--export([foldl/4]).
-
-
+%% Querying available data
 -export([stocks/0, stocks/1, dates/1, dates/2, common_dates/1, common_dates/2]).
--export([open_read/2, open_append/3]).
--export([append/2]).
--export([chunks/1]).
--export([read_events/1, read_events/2, init_reader/2, read_event/1]).
--export([close/1]).
+%% Get information about stock/date file
+-export([info/3]).
+
+%% Writing DB
+-export([open_append/3, append/2, close/1]).
+%% Reading existing data
+-export([open_read/2, events/1, events/2]).
+%% Iterator API
+-export([init_reader/2, read_event/1]).
 
 %% Run tests
 -export([run_tests/0]).
-
--define(STOCK_DATE_DELIMITER, ":").
-
-
-
-%%% Desired API
 
 
 %% @doc List of stocks in local database
@@ -72,31 +67,45 @@ open_append(Stock, Date, Opts) ->
 append(Stockdb, Event) ->
   stockdb_appender:append(Stockdb, Event).
 
-%% @doc List of chunks in file
--spec chunks(stockdb()) -> list(timestamp()).
-chunks(_Stockdb) ->
-  [].
-
+%% @doc Fetch requested information about given Stock/Date
+info(Stock, Date, Fields) ->
+  stockdb_reader:file_info(stockdb_fs:path(Stock, Date), Fields).
 
 %% @doc Read all events for stock and date
--spec read_events(stock(), date()) -> {ok, list(trade() | market_data())}.
-read_events(Stock, Date) ->
+-spec events(stock(), date()) -> {ok, list(trade() | market_data())}.
+events(Stock, Date) ->
   stockdb_reader:read_file(stockdb_fs:path(Stock, Date)).
 
 %% @doc Just read all events from stockdb
--spec read_events(stockdb()) -> {ok, list(trade() | market_data())}.
-read_events(Stockdb) ->
+-spec events(stockdb()) -> {ok, list(trade() | market_data())}.
+events(Stockdb) ->
   stockdb_reader:read_file(Stockdb).
 
 %% @doc Init iterator over opened stockdb
+% Options: 
+%    {range, Start, End}
+%    {filter, FilterFun, FilterArgs}
+% FilterFun is function in stockdb_filters
 -spec init_reader(stockdb(), list(reader_option())) -> {ok, iterator()} | {error, Reason::term()}.
-init_reader(_Stockdb, _Opts) ->
-  {error, not_implemented}.
+init_reader(Stockdb, Filters) ->
+  {ok, Iterator} = stockdb_iterator:init(Stockdb),
+  {ok, apply_filters(Iterator, Filters)}.
+
+apply_filter(Iterator, false) -> Iterator;
+apply_filter(Iterator, {range, Start, End}) ->
+  stockdb_iterator:set_range({Start, End}, Iterator);
+apply_filter(Iterator, {filter, Function, Args}) ->
+  stockdb_iterator:filter(Iterator, Function, Args).
+
+apply_filters(Iterator, []) -> Iterator;
+apply_filters(Iterator, [Filter|MoreFilters]) ->
+  apply_filters(apply_filter(Iterator, Filter), MoreFilters).
+
 
 %% @doc Read next event from iterator
 -spec read_event(iterator()) -> {ok, trade() | market_data(), iterator()} | {eof, iterator()}.
 read_event(Iterator) ->
-  {eof, Iterator}.
+  stockdb_iterator:read_event(Iterator).
 
 %% @doc close stockdb
 -spec close(stockdb()) -> ok.
@@ -105,26 +114,6 @@ close(#dbstate{file = F} = _Stockdb) ->
     undefined -> ok;
     _ -> file:close(F)
   end,
-  ok.
-
-
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%        File API
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-
-% @doc Fold over DB entries
-% Fun(Event, Acc1) -> Acc2
-% Stock — 'MICEX.URKA'
-% Options: 
-%    {day, "2012/01/05"}
-%    {range, Start, End}
-%    {filter, FilterFun}
-% FilterFun :: fun(Event, State) -> {[Event], NewState}.
--spec foldl(Filter, Acc0, stock(), list()) -> Acc1 when
-  Filter :: fun((Elem :: market_data()|trade(), AccIn :: term()) -> AccOut :: term()),
-  Acc0 :: term(),
-  Acc1 :: term().
-foldl(Fun, Acc0, Stock, Options) ->
   ok.
 
 
@@ -145,10 +134,6 @@ get_value(Key) ->
     {ok, Value} -> Value;
     undefined -> erlang:error({no_key,Key})
   end.
-
-
-
-
 
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%

@@ -11,17 +11,30 @@
 % Create new iterator from stockdb state
 -export([init/1]).
 
+% Apply filter
+-export([filter/2, filter/3]).
+
+% Limit range
+-export([seek_utc/2, set_range/2]).
+
 % Access buffer
--export([seek_utc/2, pop_event/1]).
+-export([read_event/1]).
 
 % Restore last state
 -export([restore_last_state/1]).
 
 -record(iterator, {
     dbstate,
-    buffer,
     data_start,
-    position
+    position,
+    last_utc
+  }).
+
+-record(filter, {
+    source,
+    ffun,
+    state,
+    buffer = []
   }).
 
 %% @doc Initialize iterator. Position at the very beginning of data
@@ -31,6 +44,15 @@ init(#dbstate{} = DBState) ->
       dbstate = DBState,
       data_start = DataStart,
       position = DataStart}}.
+
+%% @doc Filter source iterator, expposing same API as usual iterator
+filter(Source, FilterFun) ->
+  filter(Source, FilterFun, undefined).
+filter(Source, FilterFun, State0) when is_function(FilterFun, 2) ->
+  {ok, #filter{
+    source = Source,
+    ffun = FilterFun,
+    state = State0}}.
 
 %% @doc replay last chunk and return finl state
 restore_last_state(Iterator) ->
@@ -58,13 +80,31 @@ seek_utc(UTC, #iterator{data_start = DataStart, dbstate = #dbstate{chunk_map = C
     [] -> {-1, -1, DataStart};
     [_|_] -> lists:last(ChunksBefore)
   end,
-  seek_until(UTC, Iterator#iterator{position = ChunkOffset}).
+  seek_until(UTC, Iterator#iterator{position = ChunkOffset});
+
+seek_utc(UTC, #filter{source = Source} = Filter) ->
+  % For filter, seek in underlying source
+  Filter#filter{source = seek_utc(UTC, Source)}.
+
+
+set_last_utc(UTC, #iterator{} = Iterator) ->
+  Iterator#iterator{last_utc = UTC};
+
+set_last_utc(UTC, #filter{source = Source} = Filter) ->
+  % For filter, set last_utc on underlying source
+  Filter#filter{source = set_last_utc(UTC, Source)}.
+
+
+%% @doc set time range
+set_range({Start, End}, Iterator) ->
+  set_last_utc(End, seek_utc(Start, Iterator)).
+
 
 %% @doc Seek forward event-by-event while timestamp is less than given
 seek_until(undefined, Iterator) ->
   Iterator;
 seek_until(UTC, #iterator{} = Iterator) ->
-  case pop_event(Iterator) of
+  case read_event(Iterator) of
     {eof, NextIterator} ->
       % EOF. Just return what we have
       NextIterator;
@@ -82,13 +122,32 @@ seek_until(UTC, #iterator{} = Iterator) ->
   end.
 
 %% @doc Pop first event from iterator, return {Event|eof, NewIterator}
-pop_event(#iterator{dbstate = #dbstate{buffer = FullBuffer} = DBState, position = Pos} = Iterator) ->
+read_event(#iterator{dbstate = #dbstate{buffer = FullBuffer} = DBState, position = Pos, last_utc = LastUTC} = Iterator) ->
   <<_:Pos/binary, Buffer/binary>> = FullBuffer,
   {Event, ReadBytes, NewDBState} = case Buffer of
     <<>> -> {eof, 0, DBState};
     _Other -> get_first_packet(Buffer, DBState)
   end,
-  {Event, Iterator#iterator{dbstate = NewDBState, position = Pos + ReadBytes}}.
+  case packet_timestamp(Event) of
+    Before when LastUTC == undefined orelse Before == undefined orelse Before =< LastUTC ->
+      % Event is before given limit or we cannot compare
+      {Event, Iterator#iterator{dbstate = NewDBState, position = Pos + ReadBytes}};
+    _After ->
+      {eof, Iterator}
+  end;
+
+%% @doc read from filter: first, try to read from buffer
+read_event(#filter{buffer = [Event|BufTail]} = Filter) ->
+  {Event, Filter#filter{buffer = BufTail}};
+
+%% @doc read from filter: empty buffer -> pass event from source and retry
+read_event(#filter{buffer = [], source = Source, ffun = FFun, state = State} = Filter) ->
+  {SrcEvent, NextSource} = read_event(Source),
+  {NewBuffer, NextState} = FFun(SrcEvent, State),
+  read_event(Filter#filter{
+      buffer = NewBuffer,
+      source = NextSource,
+      state = NextState}).
 
 
 %% @doc get first event from buffer when State is db state at the beginning of it
@@ -128,7 +187,7 @@ foldl_range(Fun, Acc0, FileName, {Start, End}) ->
   end.
 
 do_foldl_full(Fun, AccIn, Iterator) ->
-  {Event, NextIterator} = pop_event(Iterator),
+  {Event, NextIterator} = read_event(Iterator),
   case Event of
     eof ->
       % Finish folding -- no more events
@@ -140,7 +199,7 @@ do_foldl_full(Fun, AccIn, Iterator) ->
   end.
 
 do_foldl_until(Fun, AccIn, Iterator, End) ->
-  {Event, NextIterator} = pop_event(Iterator),
+  {Event, NextIterator} = read_event(Iterator),
   case Event of
     eof ->
       % Finish folding -- no more events
@@ -184,4 +243,5 @@ apply_scale(PVList, Scale) when is_float(Scale) ->
 
 
 packet_timestamp({md, Timestamp, _Bid, _Ask}) -> Timestamp;
-packet_timestamp({trade, Timestamp, _Price, _Volume}) -> Timestamp.
+packet_timestamp({trade, Timestamp, _Price, _Volume}) -> Timestamp;
+packet_timestamp(eof) -> undefined.
