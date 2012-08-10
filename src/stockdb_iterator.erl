@@ -18,7 +18,7 @@
 -export([seek_utc/2, set_range/2]).
 
 % Access buffer
--export([read_event/1]).
+-export([read_event/1, all_events/1]).
 
 % Restore last state
 -export([restore_last_state/1]).
@@ -48,11 +48,16 @@ init(#dbstate{} = DBState) ->
 %% @doc Filter source iterator, expposing same API as usual iterator
 filter(Source, FilterFun) ->
   filter(Source, FilterFun, undefined).
+filter(Source, FilterFun, State0) when is_atom(FilterFun) ->
+  filter(Source, fun stockdb_filters:FilterFun/2, State0);
 filter(Source, FilterFun, State0) when is_function(FilterFun, 2) ->
-  {ok, #filter{
+  create_filter(Source, FilterFun, State0).
+
+create_filter(Source, FilterFun, State0) when is_record(Source, iterator) orelse is_record(Source, filter) ->
+  #filter{
     source = Source,
     ffun = FilterFun,
-    state = State0}}.
+    state = State0}.
 
 %% @doc replay last chunk and return finl state
 restore_last_state(Iterator) ->
@@ -149,6 +154,17 @@ read_event(#filter{buffer = [], source = Source, ffun = FFun, state = State} = F
       source = NextSource,
       state = NextState}).
 
+%% @doc read all events from buffer until eof
+all_events(Iterator) ->
+  all_events(Iterator, []).
+
+all_events(Iterator, RevEvents) ->
+  case read_event(Iterator) of
+    {eof, _} ->
+      lists:reverse(RevEvents);
+    {Event, NextIterator} ->
+      all_events(NextIterator, [Event|RevEvents])
+  end.
 
 %% @doc get first event from buffer when State is db state at the beginning of it
 get_first_packet(Buffer, #dbstate{depth = Depth, last_bidask = LastBidAsk, last_timestamp = LastTimestamp, scale = Scale} = State) ->
