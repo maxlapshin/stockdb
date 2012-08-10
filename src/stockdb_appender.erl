@@ -38,6 +38,7 @@ create_new_db(Path, Opts) ->
     version = ?STOCKDB_VERSION,
     stock = Stock,
     date = Date,
+    sync = not lists:member(nosync, Opts),
     path = Path,
     depth = proplists:get_value(depth, Opts, 1),
     scale = proplists:get_value(scale, Opts, 100),
@@ -69,25 +70,25 @@ event_timestamp(#trade{timestamp = TS}) -> TS.
 append(_Event, #dbstate{mode = Mode}) when Mode =/= append ->
   {error, reopen_in_append_mode};
 
-append(Event1, #dbstate{next_chunk_time = NCT, file = File, last_bidask = BidAsk} = State) when is_record(Event1, md) orelse is_record(Event1, trade) ->
+append(Event1, #dbstate{next_chunk_time = NCT, file = File, last_bidask = BidAsk, sync = Sync} = State) when is_record(Event1, md) orelse is_record(Event1, trade) ->
   Timestamp = event_timestamp(Event1),
   Event2 = scale(Event1, State),
   if
     (Timestamp >= NCT orelse NCT == undefined) andalso is_record(Event2, md) ->
       {ok, EOF} = file:position(File, eof),
       {ok, State_} = append_full_md(Event2, State),
-      file:sync(File),
+      if Sync -> file:sync(File); true -> ok end,
       {ok, State1_} = start_chunk(Timestamp, EOF, State_),
-      file:sync(File),
+      if Sync -> file:sync(File); true -> ok end,
       {ok, State1_};
     BidAsk == undefined andalso is_record(Event2, md) ->
       append_full_md(Event2, State);
     (Timestamp >= NCT orelse NCT == undefined) andalso is_record(Event2, trade) ->
       {ok, EOF} = file:position(File, eof),
       {ok, State_} = append_trade(Event2, State),
-      file:sync(File),
+      if Sync -> file:sync(File); true -> ok end,
       {ok, State1_} = start_chunk(Timestamp, EOF, State_),
-      file:sync(File),
+      if Sync -> file:sync(File); true -> ok end,
       {ok, State1_#dbstate{last_bidask = undefined}};
     is_record(Event2, md) ->
       append_delta_md(Event2, State);

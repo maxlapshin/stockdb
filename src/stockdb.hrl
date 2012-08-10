@@ -1,6 +1,7 @@
 
 -record(dbstate, {
     version,
+    sync = true,
     file,
     path,
     mode :: read|append,
