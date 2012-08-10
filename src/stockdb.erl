@@ -14,7 +14,7 @@
 
 
 -export([stocks/0, stocks/1, dates/1, dates/2, common_dates/1, common_dates/2]).
--export([open_read/2, open_append/2]).
+-export([open_read/2, open_append/3]).
 -export([append/2]).
 -export([chunks/1]).
 -export([init_reader/2, read_event/1]).
@@ -62,9 +62,9 @@ open_read(_Stock, _Date) ->
   {error, not_implemented}.
 
 %% @doc Open stock for appending
--spec open_append(stock(), date()) -> {ok, stockdb()} | {error, Reason::term()}.  
-open_append(Stock, Date) ->
-  stockdb_appender:open(stockdb_fs:path(Stock, Date), [{stock,Stock},{date,Date}]).
+-spec open_append(stock(), date(), [open_options()]) -> {ok, stockdb()} | {error, Reason::term()}.  
+open_append(Stock, Date, Opts) ->
+  stockdb_appender:open(stockdb_fs:path(Stock, Date), [{stock,Stock},{date,stockdb_fs:parse_date(Date)}|Opts]).
 
 %% @doc Append row to db
 -spec append(stockdb(), trade() | market_data()) -> {ok, stockdb()} | {error, Reason::term()}.

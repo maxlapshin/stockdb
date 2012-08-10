@@ -23,6 +23,9 @@
 -type market_data() :: #md{}.
 -type trade() :: #trade{}.
 
+-type open_option() :: {depth, non_neg_integer()} | {scale, non_neg_integer()} | {chunk_size, non_neg_integer()} |
+                       {date, term()} | {stock, stock()}.
+
 -type filter() :: candle | average.
 -type reader_option() :: {filter, filter()} | {range, timestamp(), timestamp()}.
 

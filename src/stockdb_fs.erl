@@ -10,7 +10,7 @@
 -export([root/0]).
 
 % Filename <-> {Stock, Date} conversion
--export([path/2, file_info/1]).
+-export([path/2, file_info/1, parse_date/1]).
 
 % Local querying
 -export([stocks/0, dates/1, common_dates/1]).
