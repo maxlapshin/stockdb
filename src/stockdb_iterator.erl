@@ -23,6 +23,9 @@
 % Restore last state
 -export([restore_last_state/1]).
 
+% May be useful
+-export([foldl/3, foldl/4]).
+
 -record(iterator, {
     dbstate,
     data_start,
@@ -194,21 +197,14 @@ get_first_packet(Buffer, #dbstate{depth = Depth, last_bidask = LastBidAsk, last_
   end.
 
 % Foldl: low-memory fold over entries
-foldl(Fun, Acc0, FileName) ->
-  foldl_range(Fun, Acc0, FileName, {undefined, undefined}).
+foldl(Fun, Acc0, Iterator) ->
+  do_foldl(Fun, Acc0, Iterator).
 
 % foldl_range: fold over entries in specified time range
-foldl_range(Fun, Acc0, FileName, {Start, End}) ->
-  {ok, State0} = stockdb_reader:open(FileName),
-  State1 = seek_utc(Start, State0),
-  _FoldResult = case End of
-    undefined ->
-      do_foldl_full(Fun, Acc0, State1);
-    _ ->
-      do_foldl_until(Fun, Acc0, State1, End)
-  end.
+foldl(Fun, Acc0, Iterator, {_Start, _End} = Range) ->
+  do_foldl(Fun, Acc0, set_range(Range, Iterator)).
 
-do_foldl_full(Fun, AccIn, Iterator) ->
+do_foldl(Fun, AccIn, Iterator) ->
   {Event, NextIterator} = read_event(Iterator),
   case Event of
     eof ->
@@ -217,25 +213,7 @@ do_foldl_full(Fun, AccIn, Iterator) ->
     _event ->
       % Iterate
       AccOut = Fun(Event, AccIn),
-      do_foldl_full(Fun, AccOut, NextIterator)
-  end.
-
-do_foldl_until(Fun, AccIn, Iterator, End) ->
-  {Event, NextIterator} = read_event(Iterator),
-  case Event of
-    eof ->
-      % Finish folding -- no more events
-      AccIn;
-    _event ->
-      case packet_timestamp(Event) of
-        Large when Large > End ->
-          % end of given interval
-          AccIn;
-        _small ->
-          % Iterate
-          AccOut = Fun(Event, AccIn),
-          do_foldl_until(Fun, AccOut, NextIterator, End)
-      end
+      do_foldl(Fun, AccOut, NextIterator)
   end.
 
 
