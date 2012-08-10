@@ -149,8 +149,14 @@ read_event(#filter{buffer = [Event|BufTail]} = Filter) ->
 read_event(#filter{buffer = [], source = Source, ffun = FFun, state = State} = Filter) ->
   {SrcEvent, NextSource} = read_event(Source),
   {NewBuffer, NextState} = FFun(SrcEvent, State),
+
+  % Filter isn't meant to pass eof, so append it
+  RealBuffer = case SrcEvent of
+    eof -> NewBuffer ++ [eof];
+    _ -> NewBuffer
+  end,
   read_event(Filter#filter{
-      buffer = NewBuffer,
+      buffer = RealBuffer,
       source = NextSource,
       state = NextState}).
 

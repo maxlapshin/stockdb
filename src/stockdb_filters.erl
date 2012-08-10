@@ -42,8 +42,7 @@ candle(#md{timestamp = Timestamp} = MD, #candle{granulation = Granulation, curre
   {Events, Candle1#candle{current_segment = Timestamp div Granulation, open = MD}};
 
 candle(eof, #candle{} = Candle) ->
-  {Events, NewCandle} = flush_segment(Candle),
-  {Events ++ [eof], NewCandle};
+  flush_segment(Candle);
 
 candle(#md{} = MD, #candle{} = Candle) ->
   {[], accumulate_md(MD, Candle)}.
