@@ -29,4 +29,5 @@
 -type filter() :: candle | average.
 -type reader_option() :: {filter, filter()} | {range, timestamp(), timestamp()}.
 
+
 -type iterator() :: term().

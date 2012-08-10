@@ -62,7 +62,7 @@ open_read(_Stock, _Date) ->
   {error, not_implemented}.
 
 %% @doc Open stock for appending
--spec open_append(stock(), date(), [open_options()]) -> {ok, stockdb()} | {error, Reason::term()}.  
+-spec open_append(stock(), date(), [open_option()]) -> {ok, stockdb()} | {error, Reason::term()}.  
 open_append(Stock, Date, Opts) ->
   stockdb_appender:open(stockdb_fs:path(Stock, Date), [{stock,Stock},{date,stockdb_fs:parse_date(Date)}|Opts]).
 
@@ -96,22 +96,6 @@ close(_Stockdb) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %        File API
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-
--type open_options() :: append | read | raw.
--spec open(Path::file:filename(), [open_options()]) -> {ok, stockdb()} | {error, Reason::term()}.
-open(Path, Options) ->
-  case lists:member(raw, Options) of
-    true ->
-      stockdb_raw:open(Path, [raw|Options]);
-    false ->
-      {ok, Pid} = gen_server:start_link(stockdb_instance, {Path, Options}, []),
-      {ok, {stockdb_pid, Pid}}
-  end.
-
-
-seek_utc({stockdb_pid, Pid}, UTC) ->
-  % set buffer and state to first event after given timestamp
-  gen_server:call(Pid, {seek_utc, UTC}).
 
 % @doc Fold over DB entries
 % Fun(Event, Acc1) -> Acc2

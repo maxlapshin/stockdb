@@ -9,7 +9,7 @@
 
 
 
-foldl_test() ->
+foldl_test1() ->
   File = tempfile("foldl-test.temp"),
   write_events_to_file(File, chunk_content('full')),
 
@@ -32,7 +32,7 @@ foldl_test() ->
 
   ok = file:delete(File).
 
-foldl_range_test() ->
+foldl_range_test1() ->
   File = tempfile("foldl-range-test.temp"),
   write_events_to_file(File, chunk_content('full')),
 
