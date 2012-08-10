@@ -5,6 +5,7 @@
 -author({"Danil Zagoskin", z@gosk.in}).
 -include("../include/stockdb.hrl").
 -include("log.hrl").
+-include("stockdb.hrl").
 
 %% Application configuration
 -export([get_value/1, get_value/2]).
@@ -17,7 +18,7 @@
 -export([open_read/2, open_append/3]).
 -export([append/2]).
 -export([chunks/1]).
--export([init_reader/2, read_event/1]).
+-export([read_events/1, init_reader/2, read_event/1]).
 -export([close/1]).
 
 %% Run tests
@@ -77,6 +78,11 @@ chunks(_Stockdb) ->
   [].
 
 
+%% @doc Just read all events from stockdb
+-spec read_events(stockdb()) -> {ok, list(trade() | market_data())}.
+read_events(Stockdb) ->
+  stockdb_reader:read_file(Stockdb).
+
 %% @doc Init iterator over opened stockdb
 -spec init_reader(stockdb(), list(reader_option())) -> {ok, iterator()} | {error, Reason::term()}.
 init_reader(_Stockdb, _Opts) ->
@@ -89,7 +95,11 @@ read_event(Iterator) ->
 
 %% @doc close stockdb
 -spec close(stockdb()) -> ok.
-close(_Stockdb) ->
+close(#dbstate{file = F} = _Stockdb) ->
+  case F of 
+    undefined -> ok;
+    _ -> file:close(F)
+  end,
   ok.
 
 

@@ -60,13 +60,17 @@ open_existing_db(Path, Modes) ->
 
 
 
-read_file(Path) ->
+read_file(#dbstate{buffer = Buffer, depth = Depth, chunk_map = [{_, _, Offset}|_], scale = Scale}) ->
+  <<_:Offset/binary, Data/binary>> = Buffer,
+  {ok, read_all_events(Data, Depth, undefined, Scale)};
+
+read_file(#dbstate{chunk_map = []}) ->
+  {ok, []};
+
+read_file(Path) when is_list(Path) ->
   case open(Path) of
-    {ok, #dbstate{buffer = Buffer, depth = Depth, chunk_map = [{_, _, Offset}|_], scale = Scale}} ->
-      <<_:Offset/binary, Data/binary>> = Buffer,
-      {ok, read_all_events(Data, Depth, undefined, Scale)};
-    {ok, #dbstate{chunk_map = []}} ->
-      {ok, []};
+    {ok, #dbstate{} = State} ->
+      read_file(State);
     Else ->
       Else
   end.
