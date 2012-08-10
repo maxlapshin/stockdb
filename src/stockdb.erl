@@ -58,8 +58,8 @@ common_dates(Storage, Stocks) -> stockdb_fs:common_dates(Storage, Stocks).
 
 %% @doc Open stock for reading
 -spec open_read(stock(), date()) -> {ok, stockdb()} | {error, Reason::term()}.  
-open_read(_Stock, _Date) ->
-  {error, not_implemented}.
+open_read(Stock, Date) ->
+  stockdb_reader:open(stockdb_fs:path(Stock, Date)).
 
 %% @doc Open stock for appending
 -spec open_append(stock(), date(), [open_option()]) -> {ok, stockdb()} | {error, Reason::term()}.  
