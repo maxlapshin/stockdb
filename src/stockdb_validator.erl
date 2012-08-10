@@ -2,6 +2,8 @@
 -include("stockdb.hrl").
 -include("log.hrl").
 -include_lib("kernel/include/file.hrl").
+-include_lib("eunit/include/eunit.hrl").
+
 
 -export([validate/1]).
 
@@ -48,8 +50,7 @@ validate(#dbstate{path = Path, file = File, chunk_map = ChunkMap, chunk_map_offs
 
   State1#dbstate{
     daystart = Daystart,
-    next_chunk_time = Daystart + timer:seconds(ChunkSize) * (Number + 1),
-    next_md_full = false
+    next_chunk_time = Daystart + timer:seconds(ChunkSize) * (Number + 1)
   }.
   
 utc_to_daystart(UTC) ->

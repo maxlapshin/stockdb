@@ -17,8 +17,7 @@
     next_chunk_time = 0,
     chunk_map_offset,
     chunk_map = [],
-    daystart,
-    next_md_full = true
+    daystart
   }).
 
 

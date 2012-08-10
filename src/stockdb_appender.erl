@@ -57,25 +57,39 @@ open_existing_db(Path, _Opts) ->
   stockdb_reader:open_existing_db(Path, [binary,write,read,raw]).
 
 
+scale(#md{} = MD, #dbstate{scale = Scale}) ->
+  scale_md(MD, Scale);
+
+scale(#trade{price = Price} = Trade, #dbstate{scale = Scale}) ->
+  Trade#trade{price = erlang:round(Price * Scale)}.
+
+event_timestamp(#md{timestamp = TS}) -> TS;
+event_timestamp(#trade{timestamp = TS}) -> TS.
+
 append(_Event, #dbstate{mode = Mode}) when Mode =/= append ->
   {error, reopen_in_append_mode};
 
-append({trade, Timestamp, _ ,_} = Trade, #dbstate{next_chunk_time = NCT} = State) when Timestamp >= NCT ->
-  append(Trade, start_chunk(Timestamp, State));
+append(Event1, #dbstate{next_chunk_time = NCT, file = File, last_bidask = BidAsk} = State) when is_record(Event1, md) orelse is_record(Event1, trade) ->
+  Timestamp = event_timestamp(Event1),
+  Event2 = scale(Event1, State),
+  if
+    (Timestamp >= NCT orelse NCT == undefined) andalso is_record(Event2, md) ->
+      {ok, EOF} = file:position(File, eof),
+      {ok, State_} = append_full_md(Event2, State),
+      start_chunk(Timestamp, EOF, State_);
+    BidAsk == undefined andalso is_record(Event2, md) ->
+      append_full_md(Event2, State);
+    (Timestamp >= NCT orelse NCT == undefined) andalso is_record(Event2, trade) ->
+      {ok, EOF} = file:position(File, eof),
+      {ok, State_} = append_trade(Event2, State),
+      {ok, State1_} = start_chunk(Timestamp, EOF, State_),
+      {ok, State1_#dbstate{last_bidask = undefined}};
+    is_record(Event2, md) ->
+      append_delta_md(Event2, State);
+    is_record(Event2, trade) ->
+      append_trade(Event2, State)
+  end.
 
-append({md, Timestamp, _, _} = MD, #dbstate{next_chunk_time = NCT} = State) when Timestamp >= NCT ->
-  append(MD, start_chunk(Timestamp, State));
-
-
-append({trade, Timestamp, Price, Volume}, #dbstate{scale = Scale} = State) ->
-  StorePrice = erlang:round(Price * Scale),
-  append_trade({trade, Timestamp, StorePrice, Volume}, State);
-
-append({md, _Timestamp, _Bid, _Ask} = MD, #dbstate{scale = Scale, next_md_full = true} = State) ->
-  append_full_md(scale_md(MD, Scale), State);
-
-append({md, _Timestamp, _Bid, _Ask} = MD, #dbstate{scale = Scale} = State) ->
-  append_delta_md(scale_md(MD, Scale), State).
 
 
 write_header(File, #dbstate{chunk_size = CS, date = Date, depth = Depth, scale = Scale, stock = Stock, version = Version}) ->
@@ -101,10 +115,10 @@ write_chunk_map(File, #dbstate{chunk_size = ChunkSize}) ->
 
 
 
-start_chunk(Timestamp, #dbstate{daystart = undefined, date = Date} = State) ->
-  start_chunk(Timestamp, State#dbstate{daystart = daystart(Date)});
+start_chunk(Timestamp, Offset, #dbstate{daystart = undefined, date = Date} = State) ->
+  start_chunk(Timestamp, Offset, State#dbstate{daystart = daystart(Date)});
 
-start_chunk(Timestamp, State) ->
+start_chunk(Timestamp, Offset, State) ->
   #dbstate{
     daystart = Daystart,
     chunk_size = ChunkSize,
@@ -116,23 +130,22 @@ start_chunk(Timestamp, State) ->
   % sanity check
   (Timestamp - Daystart) < timer:hours(24) orelse erlang:error({not_this_day, Timestamp}),
 
-  ChunkOffset = current_chunk_offset(State),
+  ChunkOffset = current_chunk_offset(Offset, State),
   write_chunk_offset(ChunkNumber, ChunkOffset, State),
 
   NextChunkTime = Daystart + ChunkSizeMs * (ChunkNumber + 1),
 
   Chunk = {ChunkNumber, Timestamp, ChunkOffset},
   % ?D({new_chunk, Chunk}),
-  State#dbstate{
+  State1 = State#dbstate{
     chunk_map = ChunkMap ++ [Chunk],
-    next_chunk_time = NextChunkTime,
-    next_md_full = true}.
+    next_chunk_time = NextChunkTime},
+  {ok, State1}.
 
 
 
-current_chunk_offset(#dbstate{file = File, chunk_map_offset = ChunkMapOffset} = _State) ->
-  {ok, EOF} = file:position(File, eof),
-  _ChunkOffset = EOF - ChunkMapOffset.
+current_chunk_offset(Offset, #dbstate{chunk_map_offset = ChunkMapOffset} = _State) ->
+  Offset - ChunkMapOffset.
 
 write_chunk_offset(ChunkNumber, ChunkOffset, #dbstate{file = File, chunk_map_offset = ChunkMapOffset} = _State) ->
   ByteOffsetLen = ?OFFSETLEN div 8,
@@ -147,8 +160,7 @@ append_full_md({md, Timestamp, Bid, Ask} = MD, #dbstate{depth = Depth, file = Fi
   {ok, State#dbstate{
       last_timestamp = Timestamp,
       last_bidask = BidAsk,
-      last_md = MD,
-      next_md_full = false}
+      last_md = MD}
   }.
 
 append_delta_md({md, Timestamp, Bid, Ask} = MD, #dbstate{depth = Depth, file = File, last_timestamp = LastTS, last_bidask = LastBA} = State) ->

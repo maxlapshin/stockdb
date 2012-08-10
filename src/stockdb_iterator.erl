@@ -98,7 +98,7 @@ get_first_packet(Buffer, #dbstate{depth = Depth, last_bidask = LastBidAsk, last_
       {Timestamp, BidAsk, Tail} = stockdb_format:decode_full_md(Buffer, Depth),
 
       {packet_from_mdentry(Timestamp, BidAsk, State), erlang:byte_size(Buffer) - erlang:byte_size(Tail),
-        State#dbstate{last_timestamp = Timestamp, last_bidask = BidAsk, next_md_full = false}};
+        State#dbstate{last_timestamp = Timestamp, last_bidask = BidAsk}};
     delta_md ->
       {DTimestamp, DBidAsk, Tail} = stockdb_format:decode_delta_md(Buffer, Depth),
       BidAsk = bidask_delta_apply(LastBidAsk, DBidAsk),

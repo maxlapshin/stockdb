@@ -46,6 +46,7 @@ write_append_test() ->
         NextState
     end, S2, chunk_content('110_2') ++ chunk_content('112')),
   ok = stockdb_appender:close(S3),
+  
 
   % {ok, S4_} = stockdb_raw:open(File, Options ++ [read]),
   % {ok, S4} = stockdb_raw:restore_state(S4_),
@@ -53,6 +54,7 @@ write_append_test() ->
   % ok = stockdb_raw:close(S4),
 
   {ok, FileEvents} = stockdb_reader:read_file(File),
+
   lists:zipwith(fun(Expected, Read) ->
         ensure_packets_equal(Expected, Read)
     end,

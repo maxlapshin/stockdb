@@ -109,5 +109,8 @@ ensure_bidask_equal([{P1, V1}|BA1], [{P2, V2}|BA2]) ->
 ensure_bidask_equal([], [Extra|BA2]) ->
   ?assertEqual({0.0, 0}, Extra),
   ensure_bidask_equal([], BA2);
+ensure_bidask_equal([Extra|BA1], []) ->
+  ?assertEqual({0.0, 0}, Extra),
+  ensure_bidask_equal(BA1, []);
 ensure_bidask_equal([], []) ->
   true.
