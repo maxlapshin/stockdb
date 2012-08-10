@@ -76,13 +76,18 @@ append(Event1, #dbstate{next_chunk_time = NCT, file = File, last_bidask = BidAsk
     (Timestamp >= NCT orelse NCT == undefined) andalso is_record(Event2, md) ->
       {ok, EOF} = file:position(File, eof),
       {ok, State_} = append_full_md(Event2, State),
-      start_chunk(Timestamp, EOF, State_);
+      file:sync(File),
+      {ok, State1_} = start_chunk(Timestamp, EOF, State_),
+      file:sync(File),
+      {ok, State1_};
     BidAsk == undefined andalso is_record(Event2, md) ->
       append_full_md(Event2, State);
     (Timestamp >= NCT orelse NCT == undefined) andalso is_record(Event2, trade) ->
       {ok, EOF} = file:position(File, eof),
       {ok, State_} = append_trade(Event2, State),
+      file:sync(File),
       {ok, State1_} = start_chunk(Timestamp, EOF, State_),
+      file:sync(File),
       {ok, State1_#dbstate{last_bidask = undefined}};
     is_record(Event2, md) ->
       append_delta_md(Event2, State);
