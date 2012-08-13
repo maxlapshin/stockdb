@@ -81,6 +81,7 @@ trade_test() ->
   Tail = <<7, 239, 183, 19>>,
 
   ?assertEqual(Bin, stockdb_format:encode_trade(Timestamp, Price, Volume)),
+  ?assertEqual(Bin, stockdb_format:encode_trade(#trade{timestamp = Timestamp, price = Price/Scale, volume = Volume}, Scale)),
   ?assertEqual({Timestamp, Price, Volume, byte_size(Bin)}, stockdb_format:decode_trade(<<Bin/binary, Tail/binary>>)),
   ?assertEqual({ok, #trade{timestamp = Timestamp, price = Price, volume = Volume}, byte_size(Bin)},
     stockdb_format:decode_packet(<<Bin/binary, Tail/binary>>, 42)),
