@@ -134,7 +134,11 @@ parse_header_value_test() ->
 
 
 
-c_decode_full_md_with_scale_test() ->
+disabled_c_test() ->
+  ?debugFmt("!!! Achtung !!!~nC coder/decoder tests temporarily disabled", []),
+  ?assert(false).
+
+c_decode_full_md_with_scale_test_disabled() ->
   Timestamp = 1343207118230, 
   Bid = [{1234, 715}, {1219, 201}, {1197, 1200}],
   Ask = [{1243, 601}, {1247, 1000}, {1260, 800}],
@@ -152,7 +156,7 @@ c_decode_full_md_with_scale_test() ->
   ok.
   
 
-c_decode_full_md_test() ->
+c_decode_full_md_test_disabled() ->
   Timestamp = 1343207118230, 
   Bid = [{1234, 715}, {1219, 201}, {1197, 1200}],
   Ask = [{1243, 601}, {1247, 1000}, {1260, 800}],
@@ -173,7 +177,7 @@ c_decode_full_md_test() ->
   ?debugFmt("Full  ~p: nif ~B, erl ~B", [N, timer:now_diff(T2,T1), timer:now_diff(T3,T2)]),
   ok.
 
-c_decode_trade_test() ->
+c_decode_trade_test_disabled() ->
   Timestamp = 1343207118230,
   Price = 1234,
   Volume = 1000,
@@ -183,7 +187,7 @@ c_decode_trade_test() ->
   ensure_error_on_shorter_bin(fun(B) -> stockdb_format:read_one_row(B, 0, undefined, 100) end, Bin),
   ok.
 
-c_decode_delta_md_test() ->
+c_decode_delta_md_test_disabled() ->
   Timestamp = 15, 
   Bid = [{0, 5}, {-1, 20}, {4334, 1200}],
   Ask = [{12, 0}, {0, 0}, {1000, 800}],
@@ -205,7 +209,7 @@ c_decode_delta_md_test() ->
   ok.
 
 
-c_decode_multi_test() ->
+c_decode_multi_test_disabled() ->
   Data = <<128,0,1,56,189,98,21,150,0,0,9,164,0,0,2,203,0,0,9,135,0,0,0,201,0,0,9,90,0,
     0,4,176,0,0,9,183,0,0,2,89,0,0,9,190,0,0,3,232,0,0,9,216,0,0,3,32,114,76,1,
     53,47,215,225,1,9,144,75,104,1,58,224,48,35,88,5,127,65,16,160,111,82,129,
@@ -236,7 +240,7 @@ c_decode_multi_test() ->
   ok.
   
 
-c_decode_two_delta_md_test() ->
+c_decode_two_delta_md_test_disabled() ->
   Timestamp1 = 1343207118230, 
   Bid1 = [{1234, 715}, {1219, 201}, {1197, 1200}],
   Ask1 = [{1243, 601}, {1247, 1000}, {1260, 800}],
