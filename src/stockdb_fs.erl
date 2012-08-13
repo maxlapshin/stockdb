@@ -32,6 +32,9 @@ path(wildcard, Date) ->
 path(Stock, Date) when is_atom(Stock) ->
   path({stock, Stock}, Date);
 
+path({path, Path}, _Date) ->
+  Path;
+
 path({Type, Stock}, Date) ->
   BaseName = [Stock, "-", filename_timestamp(Date), ".stock"],
   filename:join([root(), Type, BaseName]).
