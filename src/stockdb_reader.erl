@@ -11,7 +11,7 @@
 
 % Open DB, read its contents and close,
 % returning self-sufficient state
--export([open/1, open_existing_db/2]).
+-export([open/1, open_for_migrate/1, open_existing_db/2]).
 -export([read_file/1]).
 
 -export([file_info/2]).
@@ -27,14 +27,19 @@ open(Path) ->
       {error, nofile}
   end.
 
+open_for_migrate(Path) ->
+  {ok, State1} = open_existing_db(Path, [migrate, read, binary, raw]),
+  State2 = #dbstate{file = F} = buffer_data(State1),
+  file:close(F),
+  {ok, State2#dbstate{file = undefined}}.
+
 open_existing_db(Path, Modes) ->
-  {ok, File} = file:open(Path, Modes),
+  {ok, File} = file:open(Path, Modes -- [migrate]),
   {ok, 0} = file:position(File, bof),
 
   {ok, SavedDBOpts, ChunkMapOffset} = read_header(File),
 
   {version, Version} = lists:keyfind(version, 1, SavedDBOpts),
-  Version == ?STOCKDB_VERSION orelse erlang:error({need_to_migrate, Path}),
   {stock, Stock} = lists:keyfind(stock, 1, SavedDBOpts),
   {date, Date} = lists:keyfind(date, 1, SavedDBOpts),
   {scale, Scale} = lists:keyfind(scale, 1, SavedDBOpts),
@@ -55,8 +60,18 @@ open_existing_db(Path, Modes) ->
   },
 
   State1 = read_chunk_map(State0),
-  ValidatedState = stockdb_validator:validate(State1),
-  {ok, ValidatedState}.
+  case Version of
+    ?STOCKDB_VERSION ->
+      ValidatedState = stockdb_validator:validate(State1),
+      {ok, ValidatedState};
+    _Other ->
+      case lists:member(migrate, Modes) of
+        true ->
+          {ok, State1};
+        false ->
+          erlang:error({need_to_migrate, Path})
+      end
+  end.
 
 
 

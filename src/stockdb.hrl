@@ -22,11 +22,11 @@
   }).
 
 
--define(STOCKDB_VERSION, 1).
+-define(STOCKDB_VERSION, 2).
 
 
 -define(STOCKDB_OPTIONS, [
-    {version, 1},
+    {version, ?STOCKDB_VERSION},
     {stock, undefined},
     {date, utcdate()},
     {depth, 10},
