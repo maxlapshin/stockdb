@@ -12,7 +12,6 @@
 % Open DB, read its contents and close,
 % returning self-sufficient state
 -export([open/1, open_for_migrate/1, open_existing_db/2]).
--export([read_file/1]).
 
 -export([file_info/1, file_info/2]).
 
@@ -74,36 +73,6 @@ open_existing_db(Path, Modes) ->
   end.
 
 
-
-read_file(#dbstate{buffer = Buffer, depth = Depth, chunk_map = [{_, _, Offset}|_], scale = Scale}) ->
-  <<_:Offset/binary, Data/binary>> = Buffer,
-  {ok, read_all_events(Data, Depth, undefined, Scale)};
-
-read_file(#dbstate{chunk_map = []}) ->
-  {ok, []};
-
-read_file(Path) when is_list(Path) ->
-  case open(Path) of
-    {ok, #dbstate{} = State} ->
-      read_file(State);
-    Else ->
-      Else
-  end.
-
-read_all_events(<<>>, _Depth, _PrevMD, _Scale) ->
-  [];
-
-read_all_events(Data, Depth, PrevMD, Scale) ->
-  case stockdb_format:read_one_row(Data, Depth, PrevMD, Scale) of
-    {ok, #md{} = MD, Rest} ->
-      [MD|read_all_events(Rest, Depth, MD, Scale)];
-    {ok, #trade{timestamp = TS} = Trade, Rest} ->
-      NewMD = case PrevMD of
-        undefined -> undefined;
-        _ -> PrevMD#md{timestamp = TS}
-      end,
-      [Trade|read_all_events(Rest, Depth, NewMD, Scale)]
-  end.
 
 %% @doc read data from chunk map start to EOF
 buffer_data(#dbstate{file = File, chunk_map_offset = ChunkMapOffset} = State) ->
@@ -210,9 +179,9 @@ nonzero_chunks(#dbstate{file = File, chunk_size = ChunkSize, chunk_map_offset = 
 
 %% @doc Read timestamp at specified offset
 read_timestamp_at_offset(Offset, #dbstate{buffer = undefined, file = File, chunk_map_offset = ChunkMapOffset}) ->
-  {ok, <<1:1, _:1/integer, Timestamp:62/integer>>} = file:pread(File, ChunkMapOffset + Offset, 8),
-  Timestamp;
+  {ok, Header} = file:pread(File, ChunkMapOffset + Offset, 8),
+  stockdb_format:get_timestamp(Header);
 
 read_timestamp_at_offset(Offset, #dbstate{buffer = Buffer}) ->
-  <<_:Offset/binary, 1:1, _:1/integer, Timestamp:62/integer, _/binary>> = Buffer,
-  Timestamp.
+  <<_:Offset/binary, Bin/binary>> = Buffer,
+  stockdb_format:get_timestamp(Bin).
