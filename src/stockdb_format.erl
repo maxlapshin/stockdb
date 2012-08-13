@@ -19,7 +19,7 @@
 -export([encode_trade/3, decode_trade/1]).
 -export([format_header_value/2, parse_header_value/2]).
 
--export([decode_packet/2]).
+-export([decode_packet/2, decode_packet/4]).
 
 
 init_nif() ->
@@ -139,19 +139,60 @@ decode_trade(<<1:1, 1:1, Timestamp:62/integer, Price:32/signed-integer, Volume:3
   {Timestamp, Price, Volume, 16}.
 
 
-%% @doc Main decoding function: takes binary and depth, returns packet type, body and size
--spec decode_packet(Bin::binary(), Depth::integer()) -> {Type::full_md|delta_md|trade, PacketBody::term(), Size::integer()}.
+%% @doc Univeral decoding function: takes binary and depth, returns packet and its size
+-spec decode_packet(Bin::binary(), Depth::integer()) -> {ok, Packet::term(), Size::integer()}|{error, Reason::term()}.
+
 decode_packet(<<1:1, 0:1, _/bitstring>> = Bin, Depth) ->
   {Timestamp, Bid, Ask, Size} = decode_full_md(Bin, Depth),
   {ok, #md{timestamp = Timestamp, bid = Bid, ask = Ask}, Size};
+
 decode_packet(<<0:1, _/bitstring>> = Bin, Depth) ->
   {TimeDelta, DBid, DAsk, Size} = decode_delta_md(Bin, Depth),
   {ok, {delta_md, TimeDelta, DBid, DAsk}, Size};
+
 decode_packet(<<1:1, 1:1, _/bitstring>> = Bin, _Depth) ->
   {Timestamp, Price, Volume, Size} = decode_trade(Bin),
   {ok, #trade{timestamp = Timestamp, price = Price, volume = Volume}, Size};
+
 decode_packet(<<Header:8/binary, _/bitstring>> = _BadBin, _Depth) ->
   {error, {cannot_parse, Header}}.
+
+
+%% @doc Main decoding function: takes binary and depth, returns packet type, body and size
+-spec decode_packet(Bin::binary(), Depth::integer(), PrevMD::term(), Scale::integer()) ->
+  {ok, Packet::term(), Size::integer()} | {error, Reason::term()}.
+
+decode_packet(<<1:1, 0:1, _/bitstring>> = Bin, Depth, _PrevMD, Scale) ->
+  {Timestamp, Bid, Ask, Size} = decode_full_md(Bin, Depth),
+  {ok, #md{timestamp = Timestamp, bid = unscale(Bid, Scale), ask = unscale(Ask, Scale)}, Size};
+
+decode_packet(<<0:1, _/bitstring>> = Bin, Depth, #md{} = PrevMD, Scale) ->
+  {TimeDelta, DBid, DAsk, Size} = decode_delta_md(Bin, Depth),
+  Result = apply_delta(PrevMD, #md{timestamp = TimeDelta, bid = unscale(DBid, Scale), ask = unscale(DAsk, Scale)}),
+  {ok, Result, Size};
+
+decode_packet(<<1:1, 1:1, _/bitstring>> = Bin, _Depth, _PrevMD, Scale) ->
+  {Timestamp, Price, Volume, Size} = decode_trade(Bin),
+  {ok, #trade{timestamp = Timestamp, price = Price/Scale, volume = Volume}, Size};
+
+decode_packet(<<Header:8/binary, _/bitstring>> = _BadBin, _Depth, _PrevMD, _Scale) ->
+  {error, {cannot_parse, Header}}.
+
+
+%% Utility: unscale bid/ask when deserializing
+unscale(BidAsk, Scale) when is_list(BidAsk) ->
+  lists:map(fun({Price, Volume}) ->
+        {Price/Scale, Volume}
+    end, BidAsk).
+
+%% Utility: apply delta md to previous md (actually, just sum field-by-field)
+apply_delta(#md{timestamp = TS1, bid = B1, ask = A1}, #md{timestamp = TS2, bid = B2, ask = A2}) ->
+  #md{timestamp = TS1 + TS2, bid = apply_delta(B1, B2), ask = apply_delta(A1, A2)};
+
+apply_delta(BidAsk1, BidAsk2) when is_list(BidAsk1) andalso is_list(BidAsk2) ->
+  lists:zipwith(fun({P1, V1}, {P2, V2}) ->
+        {P1 + P2, V1 + V2}
+    end, BidAsk1, BidAsk2).
 
 
 read_one_row(_Bin, _Depth) ->
@@ -164,6 +205,7 @@ read_one_row(_Bin, _Depth, _Previous, _Scale) ->
   erlang:error(nif_not_loaded).
 
 
+%% @doc serialize header value, used when writing header
 format_header_value(date, {Y, M, D}) ->
   io_lib:format("~4..0B-~2..0B-~2..0B", [Y, M, D]);
 
@@ -174,6 +216,7 @@ format_header_value(_, Value) ->
   io_lib:print(Value).
 
 
+%% @doc deserialize header value, used when parsing header
 parse_header_value(depth, Value) ->
   erlang:list_to_integer(Value);
 

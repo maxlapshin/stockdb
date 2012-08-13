@@ -6,6 +6,9 @@
 
 full_md_test() ->
   Timestamp = 16#138BDF77CBA,
+  RealBid = [{15.30, 250}, {15.20, 111}],
+  RealAsk = [{16.73, 15}, {17.00, 90}],
+  Scale = 100,
   Bid = [{1530, 250}, {1520, 111}],
   Ask = [{1673, 15}, {1700, 90}],
   Bin = <<16#80000138BDF77CBA:64/integer,
@@ -16,7 +19,10 @@ full_md_test() ->
   ?assertEqual(Bin, stockdb_format:encode_full_md(Timestamp, [Bid, Ask])),
   ?assertEqual(Bin, stockdb_format:encode_full_md(Timestamp, Bid, Ask)),
   ?assertEqual({Timestamp, Bid, Ask, byte_size(Bin)}, stockdb_format:decode_full_md(<<Bin/binary, Tail/bitstring>>, 2)),
-  ?assertEqual({ok, #md{timestamp = Timestamp, bid = Bid, ask = Ask}, byte_size(Bin)}, stockdb_format:decode_packet(<<Bin/binary, Tail/bitstring>>, 2)).
+  ?assertEqual({ok, #md{timestamp = Timestamp, bid = Bid, ask = Ask}, byte_size(Bin)},
+    stockdb_format:decode_packet(<<Bin/binary, Tail/bitstring>>, 2)),
+  ?assertEqual({ok, #md{timestamp = Timestamp, bid = RealBid, ask = RealAsk}, byte_size(Bin)},
+    stockdb_format:decode_packet(<<Bin/binary, Tail/bitstring>>, 2, #md{}, Scale)).
 
 full_md_negative_price_test() ->
   Timestamp = 16#138BDF77CBA,
@@ -39,28 +45,44 @@ full_md_negative_volume_test() ->
 
 
 delta_md_test() ->
+  PrevTimestamp = 16#138BDF77CBA,
   DTimestamp = 270,
+  Timestamp = PrevTimestamp+DTimestamp,
+
+  PrevBid = [{15.30, 250}, {15.20, 111}],
+  PrevAsk = [{16.73, 15}, {17.00, 90}],
+  Scale = 100,
   DBid = [{0, -4}, {0, 0}],
   DAsk = [{-230, 100}, {-100, -47}],
+  RealBid = [{15.30, 246}, {15.20, 111}],
+  RealAsk = [{14.43, 115}, {16.00, 43}],
+
+  PrevMD = #md{timestamp = PrevTimestamp, bid = PrevBid, ask = PrevAsk},
+
   Bin = <<0:4,  0:1,1:1, 0:1,0:1, 1:1,1:1, 1:1,1:1,  0:4,   142,2,   124,  154,126, 228,0,  156,127, 81>>,
   Tail = <<7, 239, 183, 19>>,
 
   ?assertEqual(Bin, stockdb_format:encode_delta_md(DTimestamp, [DBid, DAsk])),
   ?assertEqual(Bin, stockdb_format:encode_delta_md(DTimestamp, DBid, DAsk)),
   ?assertEqual({DTimestamp, DBid, DAsk, byte_size(Bin)}, stockdb_format:decode_delta_md(<<Bin/bitstring, Tail/bitstring>>, 2)),
-  ?assertEqual({ok, {delta_md, DTimestamp, DBid, DAsk}, byte_size(Bin)}, stockdb_format:decode_packet(<<Bin/bitstring, Tail/bitstring>>, 2)).
+  ?assertEqual({ok, {delta_md, DTimestamp, DBid, DAsk}, byte_size(Bin)}, stockdb_format:decode_packet(<<Bin/bitstring, Tail/bitstring>>, 2)),
+  ?assertEqual({ok, #md{timestamp = Timestamp, bid = RealBid, ask = RealAsk}, byte_size(Bin)},
+    stockdb_format:decode_packet(<<Bin/binary, Tail/bitstring>>, 2, PrevMD, Scale)).
 
 trade_test() ->
   Timestamp = 16#138BDF77CBA,
   Price = 16#DEAD,
   Volume = 16#BEEF,
+  Scale = 100,
   Bin = <<16#C0000138BDF77CBA:64/integer, Price:32/integer, Volume:32/integer>>,
   Tail = <<7, 239, 183, 19>>,
 
   ?assertEqual(Bin, stockdb_format:encode_trade(Timestamp, Price, Volume)),
   ?assertEqual({Timestamp, Price, Volume, byte_size(Bin)}, stockdb_format:decode_trade(<<Bin/binary, Tail/binary>>)),
   ?assertEqual({ok, #trade{timestamp = Timestamp, price = Price, volume = Volume}, byte_size(Bin)},
-    stockdb_format:decode_packet(<<Bin/binary, Tail/binary>>, 42)).
+    stockdb_format:decode_packet(<<Bin/binary, Tail/binary>>, 42)),
+  ?assertEqual({ok, #trade{timestamp = Timestamp, price = Price/Scale, volume = Volume}, byte_size(Bin)},
+    stockdb_format:decode_packet(<<Bin/binary, Tail/binary>>, 42, #md{}, Scale)).
 
 trade_zerovolume_test() ->
   Timestamp = 16#138BDF77CBA,
