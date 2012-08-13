@@ -9,12 +9,13 @@
 -author({"Danil Zagoskin", z@gosk.in}).
 
 -include_lib("eunit/include/eunit.hrl").
+-include("../include/stockdb.hrl").
 
 %-on_load(init_nif/0).
 %-export([read_one_row/2, read_one_row/3, read_one_row/4]).
 
--export([encode_full_md/2, decode_full_md/2]).
--export([encode_delta_md/2, decode_delta_md/2]).
+-export([encode_full_md/2, encode_full_md/3, decode_full_md/2]).
+-export([encode_delta_md/2, encode_delta_md/3, decode_delta_md/2]).
 -export([encode_trade/3, decode_trade/1]).
 -export([format_header_value/2, parse_header_value/2]).
 
@@ -38,19 +39,25 @@ nested_foldl(Fun, Acc, Element) ->
 
 
 
+%% @doc Encode full MD packet with given timestamp and (nested) bid/ask list
 -spec encode_full_md(Timestamp::integer(), BidAsk::[{Price::integer(), Volume::integer()}]) -> iolist().
 encode_full_md(Timestamp, BidAsk) ->
   nested_foldl(fun append_full_PV/2, <<1:1, 0:1, Timestamp:62/integer>>, BidAsk).
 
+%% @doc Alias for encode_full_md/2 with explicit Bid/Ask
+encode_full_md(Timestamp, Bid, Ask) ->
+  encode_full_md(Timestamp, [Bid, Ask]).
+
 append_full_PV({Price, Volume}, Acc) when is_integer(Price) andalso is_integer(Volume) andalso Volume >= 0 ->
   <<Acc/binary, Price:32/signed-integer, Volume:32/unsigned-integer>>.
+
 
 -spec decode_full_md(Buffer::binary(), Depth::integer()) ->
   {Timestamp::integer(), BidAsk::[{Price::integer(), Volume::integer()}], ByteCount::integer()}.
 decode_full_md(<<1:1, Timestamp:63/integer, BidAskTail/binary>>, Depth) ->
   {Bid, AskTail} = decode_full_bidask(BidAskTail, Depth),
   {Ask, _Tail} = decode_full_bidask(AskTail, Depth),
-  {Timestamp, [Bid, Ask], 8 + 2*2*Depth*4}.
+  {Timestamp, Bid, Ask, 8 + 2*2*Depth*4}.
 
 decode_full_bidask(Tail, 0) ->
   {[], Tail};
@@ -60,6 +67,7 @@ decode_full_bidask(<<Price:32/signed-integer, Volume:32/unsigned-integer, Tail/b
   {[Line | TailLines], FinalTail}.
 
 
+%% @doc Encode delta MD packet with given timestamp delta and (nested) bid/ask delta list
 -spec encode_delta_md(TimeDelta::integer(), BidAskDelta::[{DPrice::integer(), DVolume::integer()}]) -> iolist().
 encode_delta_md(TimeDelta, BidAskDelta) ->
   % Bit mask length is 4*Depth, so wee can align it to 4 bits, leaving extra space for future
@@ -71,6 +79,10 @@ encode_delta_md(TimeDelta, BidAskDelta) ->
     end, {Header, <<>>}, BidAskDelta),
   HBitMaskPadded = pad_to_octets(HBitMask),
   <<HBitMaskPadded/binary, TimeBin/binary, DataBin/binary>>.
+
+%% @doc Alias for encode_delta_md/2 with explicit Bid/Ask
+encode_delta_md(Timestamp, Bid, Ask) ->
+  encode_delta_md(Timestamp, [Bid, Ask]).
 
 %% Utility: append bit to bitmask and (if not zero) value to data accumulator
 add_delta_field(0, {BitMask, DataBin}) ->
@@ -88,7 +100,9 @@ pad_to_octets(BS) ->
 
 
 -spec decode_delta_md(Buffer::binary(), Depth::integer()) ->
-  {TimeDelta::integer(), BidAskDelta::[{DPrice::integer(), DVolume::integer()}], ByteCount::integer()}.
+  {TimeDelta::integer(),
+    BidDelta::[{DPrice::integer(), DVolume::integer()}],
+    AskDelta::[{DPrice::integer(), DVolume::integer()}], ByteCount::integer()}.
 decode_delta_md(<<0:1, _/bitstring>> = Bin, Depth) ->
   % Calculate bitmask size
   HalfBMSize = Depth * 2,
@@ -100,7 +114,7 @@ decode_delta_md(<<0:1, _/bitstring>> = Bin, Depth) ->
   {DBid, DA_Tail} = decode_PVs(DBA_Tail, BidBitMask),
   {DAsk, Tail} = decode_PVs(DA_Tail, AskBitMask),
   ByteCount = erlang:byte_size(Bin) - erlang:byte_size(Tail),
-  {TimeDelta, [DBid, DAsk], ByteCount}.
+  {TimeDelta, DBid, DAsk, ByteCount}.
 
 decode_PVs(DataBin, BitMask) ->
   {RevPVs, Tail} = lists:foldl(fun({PF, VF}, {PVs, PVData}) ->
@@ -128,14 +142,16 @@ decode_trade(<<1:1, 1:1, Timestamp:62/integer, Price:32/signed-integer, Volume:3
 %% @doc Main decoding function: takes binary and depth, returns packet type, body and size
 -spec decode_packet(Bin::binary(), Depth::integer()) -> {Type::full_md|delta_md|trade, PacketBody::term(), Size::integer()}.
 decode_packet(<<1:1, 0:1, _/bitstring>> = Bin, Depth) ->
-  {Timestamp, BidAsk, Size} = decode_full_md(Bin, Depth),
-  {full_md, {Timestamp, BidAsk}, Size};
+  {Timestamp, Bid, Ask, Size} = decode_full_md(Bin, Depth),
+  {ok, #md{timestamp = Timestamp, bid = Bid, ask = Ask}, Size};
 decode_packet(<<0:1, _/bitstring>> = Bin, Depth) ->
-  {TimeDelta, DBidAsk, Size} = decode_delta_md(Bin, Depth),
-  {delta_md, {TimeDelta, DBidAsk}, Size};
+  {TimeDelta, DBid, DAsk, Size} = decode_delta_md(Bin, Depth),
+  {ok, {delta_md, TimeDelta, DBid, DAsk}, Size};
 decode_packet(<<1:1, 1:1, _/bitstring>> = Bin, _Depth) ->
   {Timestamp, Price, Volume, Size} = decode_trade(Bin),
-  {trade, {Timestamp, Price, Volume}, Size}.
+  {ok, #trade{timestamp = Timestamp, price = Price, volume = Volume}, Size};
+decode_packet(<<Header:8/binary, _/bitstring>> = _BadBin, _Depth) ->
+  {error, {cannot_parse, Header}}.
 
 
 read_one_row(_Bin, _Depth) ->
