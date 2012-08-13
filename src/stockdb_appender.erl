@@ -58,44 +58,36 @@ open_existing_db(Path, _Opts) ->
   stockdb_reader:open_existing_db(Path, [binary,write,read,raw]).
 
 
-scale(#md{} = MD, #dbstate{scale = Scale}) ->
-  scale_md(MD, Scale);
-
-scale(#trade{price = Price} = Trade, #dbstate{scale = Scale}) ->
-  Trade#trade{price = erlang:round(Price * Scale)}.
-
 event_timestamp(#md{timestamp = TS}) -> TS;
 event_timestamp(#trade{timestamp = TS}) -> TS.
 
 append(_Event, #dbstate{mode = Mode}) when Mode =/= append ->
   {error, reopen_in_append_mode};
 
-append(Event1, #dbstate{next_chunk_time = NCT, file = File, last_bidask = BidAsk, sync = Sync} = State) when is_record(Event1, md) orelse is_record(Event1, trade) ->
-  Timestamp = event_timestamp(Event1),
-  Event2 = scale(Event1, State),
+append(Event, #dbstate{next_chunk_time = NCT, file = File, last_md = LastMD, sync = Sync} = State)
+when is_record(Event, md) orelse is_record(Event, trade) ->
+  Timestamp = event_timestamp(Event),
   if
-    (Timestamp >= NCT orelse NCT == undefined) andalso is_record(Event2, md) ->
+    (Timestamp >= NCT orelse NCT == undefined) ->
       {ok, EOF} = file:position(File, eof),
-      {ok, State_} = append_full_md(Event2, State),
+      {ok, State_} = append_first_event(Event, State),
       if Sync -> file:sync(File); true -> ok end,
       {ok, State1_} = start_chunk(Timestamp, EOF, State_),
       if Sync -> file:sync(File); true -> ok end,
       {ok, State1_};
-    BidAsk == undefined andalso is_record(Event2, md) ->
-      append_full_md(Event2, State);
-    (Timestamp >= NCT orelse NCT == undefined) andalso is_record(Event2, trade) ->
-      {ok, EOF} = file:position(File, eof),
-      {ok, State_} = append_trade(Event2, State),
-      if Sync -> file:sync(File); true -> ok end,
-      {ok, State1_} = start_chunk(Timestamp, EOF, State_),
-      if Sync -> file:sync(File); true -> ok end,
-      {ok, State1_#dbstate{last_bidask = undefined}};
-    is_record(Event2, md) ->
-      append_delta_md(Event2, State);
-    is_record(Event2, trade) ->
-      append_trade(Event2, State)
+    LastMD == undefined andalso is_record(Event, md) ->
+      append_full_md(Event, State);
+    is_record(Event, md) ->
+      append_delta_md(Event, State);
+    is_record(Event, trade) ->
+      append_trade(Event, State)
   end.
 
+append_first_event(Event, State) when is_record(Event, md) ->
+  append_full_md(Event, State);
+
+append_first_event(Event, State) when is_record(Event, trade) ->
+  append_trade(Event, State#dbstate{last_md = undefined}).
 
 
 write_header(File, #dbstate{chunk_size = CS, date = Date, depth = Depth, scale = Scale, stock = Stock, version = Version}) ->
@@ -158,35 +150,37 @@ write_chunk_offset(ChunkNumber, ChunkOffset, #dbstate{file = File, chunk_map_off
   ok = file:pwrite(File, ChunkMapOffset + ChunkNumber*ByteOffsetLen, <<ChunkOffset:?OFFSETLEN/integer>>).
 
 
-append_full_md({md, Timestamp, Bid, Ask} = MD, #dbstate{depth = Depth, file = File} = State) ->
-  BidAsk = [setdepth(Bid, Depth), setdepth(Ask, Depth)],
-  Data = stockdb_format:encode_full_md(Timestamp, BidAsk),
+append_full_md(#md{timestamp = Timestamp} = MD, #dbstate{depth = Depth, file = File, scale = Scale} = State) ->
+  DepthSetMD = setdepth(MD, Depth),
+  Data = stockdb_format:encode_full_md(DepthSetMD, Scale),
   {ok, _EOF} = file:position(File, eof),
   ok = file:write(File, Data),
   {ok, State#dbstate{
       last_timestamp = Timestamp,
-      last_bidask = BidAsk,
-      last_md = MD}
+      last_md = DepthSetMD}
   }.
 
-append_delta_md({md, Timestamp, Bid, Ask} = MD, #dbstate{depth = Depth, file = File, last_timestamp = LastTS, last_bidask = LastBA} = State) ->
-  BidAsk = [setdepth(Bid, Depth), setdepth(Ask, Depth)],
-  BidAskDelta = bidask_delta(LastBA, BidAsk),
-  Data = stockdb_format:encode_delta_md(Timestamp - LastTS, BidAskDelta),
+append_delta_md(#md{timestamp = Timestamp} = MD, #dbstate{depth = Depth, file = File, last_md = LastMD, scale = Scale} = State) ->
+  DepthSetMD = setdepth(MD, Depth),
+  Data = stockdb_format:encode_delta_md(DepthSetMD, LastMD, Scale),
   {ok, _EOF} = file:position(File, eof),
   ok = file:write(File, Data),
   {ok, State#dbstate{
-    last_md = MD,
       last_timestamp = Timestamp,
-      last_bidask = BidAsk}
+      last_md = DepthSetMD}
   }.
 
-append_trade({trade, Timestamp, Price, Volume}, #dbstate{file = File} = State) ->
-  Data = stockdb_format:encode_trade(Timestamp, Price, Volume),
+append_trade(#trade{timestamp = Timestamp} = Trade, #dbstate{file = File, scale = Scale} = State) ->
+  Data = stockdb_format:encode_trade(Trade, Scale),
   {ok, _EOF} = file:position(File, eof),
   ok = file:write(File, Data),
   {ok, State#dbstate{last_timestamp = Timestamp}}.
 
+
+setdepth(#md{bid = Bid, ask = Ask} = MD, Depth) ->
+  MD#md{
+    bid = setdepth(Bid, Depth),
+    ask = setdepth(Ask, Depth)};
 
 setdepth(_Quotes, 0) ->
   [];
@@ -195,28 +189,8 @@ setdepth([], Depth) ->
 setdepth([Q|Quotes], Depth) ->
   [Q|setdepth(Quotes, Depth - 1)].
 
-bidask_delta([[_|_] = Bid1, [_|_] = Ask1], [[_|_] = Bid2, [_|_] = Ask2]) ->
-  [bidask_delta1(Bid1, Bid2), bidask_delta1(Ask1, Ask2)].
-
-bidask_delta1(List1, List2) ->
-  lists:zipwith(fun({Price1, Volume1}, {Price2, Volume2}) ->
-    {Price2 - Price1, Volume2 - Volume1}
-  end, List1, List2).
-
 
 daystart(Date) ->
   DaystartSeconds = calendar:datetime_to_gregorian_seconds({Date, {0,0,0}}) - calendar:datetime_to_gregorian_seconds({{1970,1,1}, {0,0,0}}),
   DaystartSeconds * 1000.
-
-apply_scale(PVList, Scale) when is_integer(Scale) ->
-  lists:map(fun({Price, Volume}) ->
-        {erlang:round(Price * Scale), Volume}
-    end, PVList).
-
-
-
-scale_md({md, Timestamp, Bid, Ask}, Scale) ->
-  SBid = apply_scale(Bid, Scale),
-  SAsk = apply_scale(Ask, Scale),
-  {md, Timestamp, SBid, SAsk}.
 

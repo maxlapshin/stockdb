@@ -71,11 +71,21 @@ write_append_test() ->
   S1 = lists:foldl(fun(Event, State) ->
         {ok, NextState} = stockdb_appender:append(Event, State),
         NextState
-    end, S0, chunk_content('109') ++ chunk_content('110_1')),
+    end, S0, chunk_content('109') ++ [hd(chunk_content('110_1'))]),
   ok = stockdb_appender:close(S1),
 
+  {ok, S1_1} = stockdb_appender:open(File, []),
+  ensure_states_equal(S1, S1_1),
+
+  S1_2 = lists:foldl(fun(Event, State) ->
+        {ok, NextState} = stockdb_appender:append(Event, State),
+        NextState
+    end, S1_1, tl(chunk_content('110_1'))),
+  ok = stockdb_appender:close(S1_2),
+
   {ok, S2} = stockdb_appender:open(File, []),
-  ensure_states_equal(S1, S2),
+  ensure_states_equal(S1_2, S2),
+
   S3 = lists:foldl(fun(Event, State) ->
         {ok, NextState} = stockdb_appender:append(Event, State),
         NextState
@@ -88,7 +98,7 @@ write_append_test() ->
   % ensure_states_equal(S3, S4),
   % ok = stockdb_raw:close(S4),
 
-  {ok, FileEvents} = stockdb_reader:read_file(File),
+  FileEvents = stockdb:events({path, File}, undefined),
 
   lists:zipwith(fun(Expected, Read) ->
         ensure_packets_equal(Expected, Read)

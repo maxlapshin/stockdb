@@ -7,6 +7,7 @@
 -include("log.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include("stockdb.hrl").
+-include("../include/stockdb.hrl").
 
 % Create new iterator from stockdb state
 -export([init/1]).
@@ -176,25 +177,15 @@ all_events(Iterator, RevEvents) ->
   end.
 
 %% @doc get first event from buffer when State is db state at the beginning of it
-get_first_packet(Buffer, #dbstate{depth = Depth, last_bidask = LastBidAsk, last_timestamp = LastTimestamp, scale = Scale} = State) ->
-  case stockdb_format:packet_type(Buffer) of
-    full_md ->
-      {Timestamp, BidAsk, Tail} = stockdb_format:decode_full_md(Buffer, Depth),
-
-      {packet_from_mdentry(Timestamp, BidAsk, State), erlang:byte_size(Buffer) - erlang:byte_size(Tail),
-        State#dbstate{last_timestamp = Timestamp, last_bidask = BidAsk}};
-    delta_md ->
-      {DTimestamp, DBidAsk, Tail} = stockdb_format:decode_delta_md(Buffer, Depth),
-      BidAsk = bidask_delta_apply(LastBidAsk, DBidAsk),
-      Timestamp = LastTimestamp + DTimestamp,
-
-      {packet_from_mdentry(Timestamp, BidAsk, State), erlang:byte_size(Buffer) - erlang:byte_size(Tail),
-        State#dbstate{last_timestamp = Timestamp, last_bidask = BidAsk}};
-    trade ->
-      {Timestamp, Price, Volume, Tail} = stockdb_format:decode_trade(Buffer),
-      {{trade, Timestamp, Price/Scale, Volume}, erlang:byte_size(Buffer) - erlang:byte_size(Tail),
-        State#dbstate{last_timestamp = Timestamp}}
-  end.
+get_first_packet(Buffer, #dbstate{depth = Depth, last_md = LastMD, scale = Scale} = State) ->
+  {ok, Packet, Size} = stockdb_format:decode_packet(Buffer, Depth, LastMD, Scale),
+  NextState = case Packet of
+    #md{timestamp = Timestamp} ->
+      State#dbstate{last_timestamp = Timestamp, last_md = Packet};
+    #trade{timestamp = Timestamp} ->
+      State#dbstate{last_timestamp = Timestamp}
+  end,
+  {Packet, Size, NextState}.
 
 % Foldl: low-memory fold over entries
 foldl(Fun, Acc0, Iterator) ->
@@ -215,31 +206,6 @@ do_foldl(Fun, AccIn, Iterator) ->
       AccOut = Fun(Event, AccIn),
       do_foldl(Fun, AccOut, NextIterator)
   end.
-
-
-bidask_delta_apply([[_|_] = Bid1, [_|_] = Ask1], [[_|_] = Bid2, [_|_] = Ask2]) ->
-  [bidask_delta_apply1(Bid1, Bid2), bidask_delta_apply1(Ask1, Ask2)].
-
-bidask_delta_apply1(List1, List2) ->
-  lists:zipwith(fun({Price, Volume}, {DPrice, DVolume}) ->
-    {Price + DPrice, Volume + DVolume}
-  end, List1, List2).
-
-
-split_bidask([Bid, Ask], _Depth) ->
-  {Bid, Ask}.
-
-packet_from_mdentry(Timestamp, BidAsk, #dbstate{depth = Depth, scale = Scale}) ->
-  {Bid, Ask} = split_bidask(BidAsk, Depth),
-  SBid = if is_number(Scale) -> apply_scale(Bid, 1/Scale); true -> Bid end,
-  SAsk = if is_number(Scale) -> apply_scale(Ask, 1/Scale); true -> Ask end,
-  {md, Timestamp, SBid, SAsk}.
-
-apply_scale(PVList, Scale) when is_float(Scale) ->
-  lists:map(fun({Price, Volume}) ->
-        {Price * Scale, Volume}
-    end, PVList).
-
 
 
 packet_timestamp({md, Timestamp, _Bid, _Ask}) -> Timestamp;

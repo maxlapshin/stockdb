@@ -62,15 +62,14 @@ utc_to_daystart(UTC) ->
 validate_chunk(<<>>, _, State) ->
   {ok, State};
 
-validate_chunk(Chunk, Offset, #dbstate{last_md = MD, depth = Depth} = State) ->
-  case stockdb_format:read_one_row(Chunk, Depth, MD) of
-    {ok, {md, TS, Bid, Ask} = NewMD, Rest} ->
-      PacketSize = erlang:byte_size(Chunk) - erlang:byte_size(Rest),
-      validate_chunk(Rest, Offset + PacketSize, State#dbstate{last_md = NewMD, last_timestamp = TS, last_bidask = [Bid,Ask]});
-    {ok, {trade, TS, _, _}, Rest} ->
-      PacketSize = erlang:byte_size(Chunk) - erlang:byte_size(Rest),
-      validate_chunk(Rest, Offset + PacketSize, State#dbstate{last_timestamp = TS});
+validate_chunk(Chunk, Offset, #dbstate{last_md = MD, depth = Depth, scale = Scale} = State) ->
+  case stockdb_format:decode_packet(Chunk, Depth, MD, Scale) of
+    {ok, {md, TS, Bid, Ask} = NewMD, Size} ->
+      <<_:Size/binary, Rest/binary>> = Chunk,
+      validate_chunk(Rest, Offset + Size, State#dbstate{last_md = NewMD, last_timestamp = TS});
+    {ok, {trade, TS, _, _}, Size} ->
+      <<_:Size/binary, Rest/binary>> = Chunk,
+      validate_chunk(Rest, Offset + Size, State#dbstate{last_timestamp = TS});
     {error, _Reason} ->
-      %error(Reason),
       {error, State, Offset}
   end.

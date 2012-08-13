@@ -15,7 +15,7 @@ db_repair_test() ->
   
   append_events_to_file(File, chunk_content('110_2') ++ chunk_content('112')),
 
-  {ok, FileEvents} = stockdb_reader:read_file(File),
+  FileEvents = stockdb:events({path, File}, undefined),
   lists:zipwith(fun(Expected, Read) ->
         ensure_packets_equal(Expected, Read)
     end,
