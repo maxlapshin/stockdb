@@ -41,8 +41,12 @@ nested_foldl(Fun, Acc, Element) ->
 
 %% @doc Encode full MD packet with given timestamp and (nested) bid/ask list
 -spec encode_full_md(Timestamp::integer(), BidAsk::[{Price::integer(), Volume::integer()}]) -> iolist().
-encode_full_md(Timestamp, BidAsk) ->
-  nested_foldl(fun append_full_PV/2, <<1:1, 0:1, Timestamp:62/integer>>, BidAsk).
+encode_full_md(Timestamp, BidAsk) when is_integer(Timestamp) andalso is_list(BidAsk) ->
+  nested_foldl(fun append_full_PV/2, <<1:1, 0:1, Timestamp:62/integer>>, BidAsk);
+
+%% @doc Accept #md{} and scale for high-level encoding
+encode_full_md(#md{timestamp = Timestamp, bid = Bid, ask = Ask}, Scale) ->
+  encode_full_md(Timestamp, [scale(Bid, Scale), scale(Ask, Scale)]).
 
 %% @doc Alias for encode_full_md/2 with explicit Bid/Ask
 encode_full_md(Timestamp, Bid, Ask) ->
@@ -81,8 +85,13 @@ encode_delta_md(TimeDelta, BidAskDelta) ->
   <<HBitMaskPadded/binary, TimeBin/binary, DataBin/binary>>.
 
 %% @doc Alias for encode_delta_md/2 with explicit Bid/Ask
-encode_delta_md(Timestamp, Bid, Ask) ->
-  encode_delta_md(Timestamp, [Bid, Ask]).
+encode_delta_md(TimeDelta, DBid, DAsk) when is_integer(TimeDelta) andalso is_list(DBid) andalso is_list(DAsk) ->
+  encode_delta_md(TimeDelta, [DBid, DAsk]);
+
+%% @doc Accept new md, previous md, scale for high-level encoding
+encode_delta_md(#md{} = MD, #md{} = PrevMD, Scale) ->
+  #md{timestamp = TimeDelta, bid = DBid, ask = DAsk} = compute_delta(PrevMD, MD),
+  encode_delta_md(TimeDelta, [scale(DBid, Scale), scale(DAsk, Scale)]).
 
 %% Utility: append bit to bitmask and (if not zero) value to data accumulator
 add_delta_field(0, {BitMask, DataBin}) ->
@@ -179,6 +188,12 @@ decode_packet(<<Header:8/binary, _/bitstring>> = _BadBin, _Depth, _PrevMD, _Scal
   {error, {cannot_parse, Header}}.
 
 
+%% Utility: scale bid/ask when serializing
+scale(BidAsk, Scale) when is_list(BidAsk) andalso is_integer(Scale) ->
+  lists:map(fun({Price, Volume}) ->
+        {erlang:round(Price*Scale), Volume}
+    end, BidAsk).
+
 %% Utility: unscale bid/ask when deserializing
 unscale(BidAsk, Scale) when is_list(BidAsk) ->
   lists:map(fun({Price, Volume}) ->
@@ -192,6 +207,16 @@ apply_delta(#md{timestamp = TS1, bid = B1, ask = A1}, #md{timestamp = TS2, bid =
 apply_delta(BidAsk1, BidAsk2) when is_list(BidAsk1) andalso is_list(BidAsk2) ->
   lists:zipwith(fun({P1, V1}, {P2, V2}) ->
         {P1 + P2, V1 + V2}
+    end, BidAsk1, BidAsk2).
+
+%% Utility: get delta md where first argument is old value, second is new one
+compute_delta(#md{timestamp = TS1, bid = B1, ask = A1}, #md{timestamp = TS2, bid = B2, ask = A2}) ->
+  #md{timestamp = TS2 - TS1, bid = compute_delta(B1, B2), ask = compute_delta(A1, A2)};
+
+compute_delta(BidAsk1, BidAsk2) when is_list(BidAsk1) andalso is_list(BidAsk2) ->
+  % Count delta when going from BidAsk1 to BidAsk2 -> X = X2 - X1
+  lists:zipwith(fun({P1, V1}, {P2, V2}) ->
+        {P2 - P1, V2 - V1}
     end, BidAsk1, BidAsk2).
 
 
