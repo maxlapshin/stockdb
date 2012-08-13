@@ -13,7 +13,7 @@
 %% Querying available data
 -export([stocks/0, stocks/1, dates/1, dates/2, common_dates/1, common_dates/2]).
 %% Get information about stock/date file
--export([info/3]).
+-export([info/1, info/3]).
 
 %% Writing DB
 -export([open_append/3, append/2, close/1]).
@@ -67,7 +67,14 @@ open_append(Stock, Date, Opts) ->
 append(Stockdb, Event) ->
   stockdb_appender:append(Stockdb, Event).
 
+
+%% @doc Fetch information from opened stockdb
+-spec info(stockdb()) -> list().
+info(Stockdb) ->
+  stockdb_reader:file_info(Stockdb).
+
 %% @doc Fetch requested information about given Stock/Date
+-spec info(stock(), date(), list()) -> list().
 info(Stock, Date, Fields) ->
   stockdb_reader:file_info(stockdb_fs:path(Stock, Date), Fields).
 

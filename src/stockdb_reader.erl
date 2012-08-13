@@ -14,7 +14,7 @@
 -export([open/1, open_for_migrate/1, open_existing_db/2]).
 -export([read_file/1]).
 
--export([file_info/2]).
+-export([file_info/1, file_info/2]).
 
 open(Path) ->
   case filelib:is_regular(Path) of
@@ -114,6 +114,10 @@ buffer_data(#dbstate{file = File, chunk_map_offset = ChunkMapOffset} = State) ->
   % return state with buffer set
   State#dbstate{buffer = Buffer}.
 
+
+%% @doc return some file_info about opened stockdb
+file_info(#dbstate{path = Path}) ->
+  [{path, Path}].
 
 %% @doc read file info
 file_info(FileName, Fields) ->
