@@ -91,10 +91,14 @@ ensure_states_equal(State1, State2) ->
   Names = record_info(fields, dbstate),
   Blacklist = [file, buffer, buffer_end],
   F = fun(State) -> [{K,V} || {K,V} <- lists:zip(Names, tl(tuple_to_list(State))), not lists:member(K,Blacklist)] end,
-  lists:zipwith(fun(El1, El2) ->
-    ?assertEqual(El1, El2)
+  lists:zipwith(fun
+      ({last_md, MD1}, {last_md, MD2}) ->
+        ensure_packets_equal(MD1, MD2);
+      (El1, El2) ->
+        ?assertEqual(El1, El2)
   end, F(State1), F(State2)).
 
+ensure_packets_equal(P, P) -> ok;
 ensure_packets_equal({trade, _, _, _} = P1, {trade, _, _, _} = P2) ->
   ?assertEqual(P1, P2);
 ensure_packets_equal({md, TS1, Bid1, Ask1}, {md, TS2, Bid2, Ask2}) ->
