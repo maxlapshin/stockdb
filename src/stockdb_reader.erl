@@ -85,8 +85,8 @@ buffer_data(#dbstate{file = File, chunk_map_offset = ChunkMapOffset} = State) ->
 
 
 %% @doc return some file_info about opened stockdb
-file_info(#dbstate{path = Path}) ->
-  [{path, Path}].
+file_info(#dbstate{stock = Stock, date = Date, path = Path}) ->
+  [{path, Path},{stock, Stock}, {date, Date}].
 
 %% @doc read file info
 file_info(FileName, Fields) ->
