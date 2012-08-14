@@ -118,3 +118,55 @@ ensure_bidask_equal([Extra|BA1], []) ->
   ensure_bidask_equal(BA1, []);
 ensure_bidask_equal([], []) ->
   true.
+
+compare_eventlists([], []) ->
+  ok;
+compare_eventlists(EL1, []) ->
+  {first_tail, length(EL1)};
+compare_eventlists([], EL2) ->
+  {second_tail, length(EL2)};
+compare_eventlists([P1|EL1], [P2|EL2]) ->
+  case packets_equal(P1, P2) of
+    true ->
+      compare_eventlists(EL1, EL2);
+    false ->
+      handle_nonequal([P1|EL1], [P2|EL2])
+  end.
+
+handle_nonequal([P1|EL1], [P2|EL2]) ->
+  TS1 = element(2, P1),
+  TS2 = element(2, P2),
+  {Message, NL1, NL2} = if
+    TS1 == TS2 ->
+      {{error, P1, P2}, EL1, EL2};
+    TS1 < TS2 ->
+      {GapLen, AL1} = feed_until(TS2, EL1, 0),
+      {{second_gap, TS1, TS2, GapLen}, AL1, EL2};
+    TS1 > TS2 ->
+      {GapLen, AL2} = feed_until(TS1, EL2, 0),
+      {{first_gap, TS1, TS2, GapLen}, EL1, AL2}
+  end,
+  [Message|compare_eventlists(NL1, NL2)].
+
+packets_equal(P, P) -> true;
+packets_equal({trade, TS1, P1, V} = P1, {trade, TS2, P2, V} = P2) ->
+  abs(TS1 - TS2) < 10 andalso abs(P1 - P2) < 0.0001;
+packets_equal({md, TS1, Bid1, Ask1}, {md, TS2, Bid2, Ask2}) ->
+  abs(TS1 - TS2) < 10 andalso bidask_equal(Bid1, Bid2) andalso bidask_equal(Ask1, Ask2);
+packets_equal(_, _) -> false.
+
+bidask_equal([], []) -> true;
+bidask_equal([{P1, V}|BA1], [{P2, V}|BA2]) ->
+  abs(P1 - P2) < 0.0001 andalso bidask_equal(BA1, BA2);
+bidask_equal(_, _) -> false.
+
+
+feed_until(_TS, [], Count) ->
+  {Count, []};
+feed_until(TS, [E|EL], Count) ->
+  case element(2, E) of
+    Small when Small < TS ->
+      feed_until(TS, EL, Count + 1);
+    _ ->
+      {Count, [E|EL]}
+  end.
