@@ -25,21 +25,22 @@ candle(Event, Candle) when not is_record(Event, md) andalso Event =/= eof ->
 candle(Event, undefined) ->
   candle(Event, []);
 
-candle(#md{timestamp = Timestamp} = MD, Opts) when is_list(Opts) ->
+candle(#md{} = MD, Opts) when is_list(Opts) ->
   Granulation = proplists:get_value(granulation, Opts, ?GRANULATION),
   candle(MD, #candle{
     granulation = Granulation,
-    current_segment = Timestamp div Granulation,
-    open = MD,
-    high_ask = MD,
-    low_bid = MD,
-    close = MD
-    });
+    current_segment = -1});
 
 candle(#md{timestamp = Timestamp} = MD, #candle{granulation = Granulation, current_segment = Seg} = Candle) 
   when Timestamp div Granulation > Seg ->
   {Events, Candle1} = flush_segment(Candle),
-  {Events, Candle1#candle{current_segment = Timestamp div Granulation, open = MD}};
+  {Events, Candle1#candle{
+      current_segment = Timestamp div Granulation,
+      open = MD,
+      high_ask = MD,
+      low_bid = MD,
+      close = MD
+    }};
 
 candle(eof, #candle{} = Candle) ->
   flush_segment(Candle);
