@@ -64,8 +64,8 @@ open_append(Stock, Date, Opts) ->
 
 %% @doc Append row to db
 -spec append(stockdb(), trade() | market_data()) -> {ok, stockdb()} | {error, Reason::term()}.
-append(Stockdb, Event) ->
-  stockdb_appender:append(Stockdb, Event).
+append(Event, Stockdb) ->
+  stockdb_appender:append(Event, Stockdb).
 
 
 %% @doc Fetch information from opened stockdb
