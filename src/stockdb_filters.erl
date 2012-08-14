@@ -51,7 +51,7 @@ candle(#md{} = MD, #candle{} = Candle) ->
 
 flush_segment(#candle{open = Open, high_ask = HighAsk, low_bid = LowBid, close = Close} = Candle) ->
   Events = lists:usort([Open, HighAsk, LowBid, Close]),
-  {Events, Candle#candle{open = undefined, high_ask = undefined, low_bid = undefined, close = undefined}}.
+  {Events -- [undefined], Candle#candle{open = undefined, high_ask = undefined, low_bid = undefined, close = undefined}}.
 
 
 accumulate_md(#md{bid = [{Bid,_}|_], ask = [{Ask,_}|_]} = MD, #candle{high_ask = HighAsk, low_bid = LowBid} = Candle) ->
