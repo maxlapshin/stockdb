@@ -139,8 +139,13 @@ read_all_packets(<<>>, _State, RevPackets) ->
   lists:reverse(RevPackets);
 
 read_all_packets(Buffer, State, RevPackets) ->
-  {Packet, Tail, NewState} = get_first_packet(Buffer, State),
-  read_all_packets(Tail, NewState, [Packet|RevPackets]).
+  try
+    {Packet, Tail, NewState} = get_first_packet(Buffer, State),
+    read_all_packets(Tail, NewState, [Packet|RevPackets])
+  catch
+    _:_ ->
+      lists:reverse(RevPackets)
+  end.
 
 get_first_packet(Buffer, #dbstate{depth = Depth, last_bidask = LastBidAsk, last_timestamp = LastTimestamp, scale = Scale} = State) ->
   case packet_type(Buffer) of
