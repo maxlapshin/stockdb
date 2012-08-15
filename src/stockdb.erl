@@ -13,7 +13,7 @@
 %% Querying available data
 -export([stocks/0, stocks/1, dates/1, dates/2, common_dates/1, common_dates/2]).
 %% Get information about stock/date file
--export([info/1, info/3]).
+-export([info/1, info/2, info/3]).
 
 %% Writing DB
 -export([open_append/3, append/2, close/1]).
@@ -60,7 +60,7 @@ open_read(Stock, Date) ->
 %% @doc Open stock for appending
 -spec open_append(stock(), date(), [open_option()]) -> {ok, stockdb()} | {error, Reason::term()}.  
 open_append(Stock, Date, Opts) ->
-  stockdb_appender:open(stockdb_fs:path({proplists:get_value(type,Opts,stock), Stock}, Date), [{stock,Stock},{date,stockdb_fs:parse_date(Date)}|Opts]).
+  stockdb_appender:open(stockdb_fs:path(Stock, Date), [{stock,Stock},{date,stockdb_fs:parse_date(Date)}|Opts]).
 
 %% @doc Append row to db
 -spec append(stockdb(), trade() | market_data()) -> {ok, stockdb()} | {error, Reason::term()}.
@@ -69,12 +69,17 @@ append(Event, Stockdb) ->
 
 
 %% @doc Fetch information from opened stockdb
--spec info(stockdb()) -> list().
+-spec info(stockdb()) -> [{Key::atom(), Value::term()}].
 info(Stockdb) ->
   stockdb_reader:file_info(Stockdb).
 
+%% @doc Fetch typical information about given Stock/Date
+-spec info(stock(), date()) -> [{Key::atom(), Value::term()}].
+info(Stock, Date) ->
+  stockdb_reader:file_info(stockdb_fs:path(Stock, Date)).
+
 %% @doc Fetch requested information about given Stock/Date
--spec info(stock(), date(), list()) -> list().
+-spec info(stock(), date(), [Key::atom()]) -> [{Key::atom(), Value::term()}].
 info(Stock, Date, Fields) ->
   stockdb_reader:file_info(stockdb_fs:path(Stock, Date), Fields).
 

@@ -86,7 +86,10 @@ buffer_data(#dbstate{file = File, chunk_map_offset = ChunkMapOffset} = State) ->
 
 %% @doc return some file_info about opened stockdb
 file_info(#dbstate{stock = Stock, date = Date, path = Path}) ->
-  [{path, Path},{stock, Stock}, {date, Date}].
+  [{path, Path},{stock, Stock}, {date, Date}];
+
+file_info(FileName) ->
+  file_info(FileName, [path, stock, date, version, scale, depth]).
 
 %% @doc read file info
 file_info(FileName, Fields) ->
@@ -105,9 +108,11 @@ get_file_info(FileName, Fields) ->
       (presence) ->
         ChunkSize = proplists:get_value(chunk_size, SavedDBOpts),
         NZChunks = nonzero_chunks(#dbstate{file=File, chunk_map_offset = ChunkMapOffset, chunk_size = ChunkSize}),
-        {?NUMBER_OF_CHUNKS(ChunkSize), [N || {N, _} <- NZChunks]};
+        Presence = {?NUMBER_OF_CHUNKS(ChunkSize), [N || {N, _} <- NZChunks]},
+        {presence, Presence};
       (Field) ->
-        proplists:get_value(Field, SavedDBOpts)
+        Value = proplists:get_value(Field, [{path, FileName} | SavedDBOpts]),
+        {Field, Value}
     end, Fields),
 
   file:close(File),
