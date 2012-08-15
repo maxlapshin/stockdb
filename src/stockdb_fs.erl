@@ -144,7 +144,12 @@ path_test() ->
   ?assertEqual("custom/path/stock/MICEX.TEST-2012-08-03.stock", path('MICEX.TEST', {2012, 08, 03})),
   ?assertEqual("custom/path/stock/MICEX.TEST-2012-08-03.stock", path('MICEX.TEST', "2012-08-03")),
   ?assertEqual("custom/path/stock/MICEX.TEST-2012-08-03.stock", path('MICEX.TEST', "2012/08/03")),
+
   ?assertEqual("custom/path/stock/*-????-??-??.stock", path(wildcard, wildcard)),
+
+  ?assertEqual("custom/path/subdir/MICEX.TEST-2012-08-03.stock", path({subdir, 'MICEX.TEST'}, "2012-08-03")),
+  ?assertEqual("custom/path/sub/path/MICEX.TEST-2012-08-03.stock", path({"sub/path", 'MICEX.TEST'}, "2012-08-03")),
+  ?assertEqual("/random/file", path({path, "/random/file"}, none)),
   ok.
 
 file_info_test() ->
