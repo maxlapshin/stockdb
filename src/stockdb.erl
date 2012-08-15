@@ -99,8 +99,11 @@ events(Iterator) ->
 %    {filter, FilterFun, FilterArgs}
 % FilterFun is function in stockdb_filters
 -spec init_reader(stockdb(), list(reader_option())) -> {ok, iterator()} | {error, Reason::term()}.
-init_reader(Stockdb, Filters) ->
+init_reader(#dbstate{} = Stockdb, Filters) ->
   {ok, Iterator} = stockdb_iterator:init(Stockdb),
+  init_reader(Iterator, Filters);
+
+init_reader(Iterator, Filters) ->
   {ok, apply_filters(Iterator, Filters)}.
 
 %% @doc Shortcut for opening iterator on stock-date pair
