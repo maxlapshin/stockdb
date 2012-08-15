@@ -9,7 +9,7 @@
 % -export([average/2]).
 
 -record(candle, {
-  granulation,
+  period,
   current_segment,
   open,
   high_ask,
@@ -17,7 +17,7 @@
   close
 }).
 
--define(GRANULATION, 30000).
+-define(DEFAULT_PERIOD, 30000).
 
 candle(Event, Candle) when not is_record(Event, md) andalso Event =/= eof ->
   {[Event], Candle};
@@ -25,22 +25,18 @@ candle(Event, Candle) when not is_record(Event, md) andalso Event =/= eof ->
 candle(Event, undefined) ->
   candle(Event, []);
 
-candle(#md{} = MD, Opts) when is_list(Opts) ->
-  Granulation = proplists:get_value(granulation, Opts, ?GRANULATION),
-  candle(MD, #candle{
-    granulation = Granulation,
-    current_segment = -1});
+candle(#md{timestamp = Timestamp} = MD, Opts) when is_list(Opts) ->
+  Period = proplists:get_value(period, Opts, ?DEFAULT_PERIOD),
+  Segment = case Period of
+    undefined -> undefined;
+    Int when is_integer(Int) -> Timestamp div Period
+  end,
+  {[], open_segment(MD, Segment, #candle{period = Period})};
 
-candle(#md{timestamp = Timestamp} = MD, #candle{granulation = Granulation, current_segment = Seg} = Candle) 
-  when Timestamp div Granulation > Seg ->
+candle(#md{timestamp = Timestamp} = MD, #candle{period = Period, current_segment = Seg} = Candle) 
+  when Timestamp div Period > Seg ->
   {Events, Candle1} = flush_segment(Candle),
-  {Events, Candle1#candle{
-      current_segment = Timestamp div Granulation,
-      open = MD,
-      high_ask = MD,
-      low_bid = MD,
-      close = MD
-    }};
+  {Events, open_segment(MD, Timestamp div Period, Candle1)};
 
 candle(eof, #candle{} = Candle) ->
   flush_segment(Candle);
@@ -48,6 +44,15 @@ candle(eof, #candle{} = Candle) ->
 candle(#md{} = MD, #candle{} = Candle) ->
   {[], accumulate_md(MD, Candle)}.
 
+
+open_segment(MD, Segment, Candle) ->
+  Candle#candle{
+    current_segment = Segment,
+    open = MD,
+    high_ask = MD,
+    low_bid = MD,
+    close = MD
+  }.
 
 flush_segment(#candle{open = Open, high_ask = HighAsk, low_bid = LowBid, close = Close} = Candle) ->
   Events = lists:usort([Open, HighAsk, LowBid, Close]),
