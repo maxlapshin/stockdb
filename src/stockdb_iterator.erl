@@ -79,7 +79,8 @@ first_chunk_offset(#dbstate{chunk_map = [{_N, _T, Offset}|_Rest]} = _DBstate) ->
   Offset.
 
 %% @doc Set position to given time
-seek_utc(UTC, #iterator{data_start = DataStart, dbstate = #dbstate{chunk_map = ChunkMap}} = Iterator) ->
+seek_utc(Time, #iterator{data_start = DataStart, dbstate = #dbstate{chunk_map = ChunkMap, date = Date}} = Iterator) ->
+  UTC = time_to_utc(Time, Date),
   ChunksBefore = case UTC of
     undefined -> [];
     eof -> ChunkMap;
@@ -96,12 +97,19 @@ seek_utc(UTC, #filter{source = Source} = Filter) ->
   Filter#filter{source = seek_utc(UTC, Source)}.
 
 
-set_last_utc(UTC, #iterator{} = Iterator) ->
+set_last_utc(Time, #iterator{dbstate = #dbstate{date = Date}} = Iterator) ->
+  UTC = time_to_utc(Time, Date),
   Iterator#iterator{last_utc = UTC};
 
 set_last_utc(UTC, #filter{source = Source} = Filter) ->
   % For filter, set last_utc on underlying source
   Filter#filter{source = set_last_utc(UTC, Source)}.
+
+time_to_utc({_H, _M, _S} = Time, Date) ->
+  Seconds = calendar:datetime_to_gregorian_seconds({Date, Time}) - calendar:datetime_to_gregorian_seconds({{1970, 1, 1}, {0, 0, 0}}),
+  Seconds * 1000;
+time_to_utc(Time, _Date) ->
+  Time.
 
 
 %% @doc set time range
