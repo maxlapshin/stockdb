@@ -104,12 +104,15 @@ To use pre-defined filters you can just specify filter name:
     28> length(stockdb:events(CIterator)).
     2242
 
-StockDB index is optimized for fast timestamp seeking, so you can use `{range, Start, End}` pseudo-filter. Start and End
-are both millisecond timestamps or erlang-style `{HH, MM, SS}` tuples (tuples will work only over DB source, not over other iterator):
+StockDB index is optimized for fast timestamp seeking, so you can use `{range, Start, End}` pseudo-filter. Start and End (if defined)
+are both millisecond timestamps or erlang-style `{HH, MM, SS}` tuples (tuples will work only over DB source, not over other iterator). `undefined` for `Start` or `End` means the very beginning or the very end respectively. Example:
 
     31> {ok, RIterator} = stockdb:init_reader('NASDAQ.AAPL', "2012-08-07", [{range, {14,0,0}, {15,0,0}}]),
     31> length(stockdb:events(RIterator)).
     5139
+    49> {ok, HIterator} = stockdb:init_reader('NASDAQ.AAPL', "2012-08-07", [{range, undefined, 1344348900451}]),
+    49> length(stockdb:events(HIterator)).                                                                      
+    1954
 
 Of course, you may specify multiple filters:
 
@@ -139,3 +142,13 @@ Function `stockdb:init_reader/3` currently accesses file directly. If you have d
     true
 
 Note that we still use the same Iterator which matches perfectly. `stockdb:init_reader(S, [])` can be called when original file is unavailable allowing to minimize network load when DB content is needed on other node.
+
+
+Querying existing data
+======================
+
+There are simple functions which let you know what data you have.
+* To list all stocks having any data in database, use `stockdb:stocks()`
+* To list dates when some stock has any data, use `stockdb:dates(Stock)`
+* To get date intersection between multiple stocks, use `stockdb:common_dates([Stock1, Stock2, ...])`
+* To get some information about file, stockdb instance or stock/date pair, use `stockdb:info(Stockdb)`, `stockdb:info(Filename)`, `stockdb:info(Stock, Date)`, `stockdb:info(Stock, Date, [Key1, Key2, ...])`. Key can be one of `path, stock, date, version, scale, depth, chunk_size, presence`. Return value is tuplelist. Presence is `{ChunkCount, [ChunkNumber1, ChunkNumber2, ...]}`, representing some internal report.
