@@ -47,6 +47,11 @@ The most simple way is just to read all daily events to replaying them
 
     {ok, Events} = stockdb:events('NASDAQ.AAPL', "2012-01-15").
 
+Get candle for whole day or specified time range:
+
+    DayCandleEvents = stockdb:events('NASDAQ.AAPL', "2012-08-10", [{filter, candle, [{period, undefined}]}]).
+    RangeCandleEvents = stockdb:events('NASDAQ.AAPL', "2012-08-10", [{range, {15,0,0}, {16,0,0}}, {filter, candle, [{period, undefined}]}]).
+
 But there are possible more enhanced ways of limiting amount of loaded data.
 
 
