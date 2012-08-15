@@ -18,7 +18,7 @@
 %% Writing DB
 -export([open_append/3, append/2, close/1]).
 %% Reading existing data
--export([open_read/2, events/1, events/2]).
+-export([open_read/2, events/1, events/2, events/3]).
 %% Iterator API
 -export([init_reader/2, init_reader/3, read_event/1]).
 
@@ -83,11 +83,16 @@ info(Stock, Date) ->
 info(Stock, Date, Fields) ->
   stockdb_reader:file_info(stockdb_fs:path(Stock, Date), Fields).
 
+%% @doc Get all events from filtered stock/date
+-spec events(stock(), date(), [term()]) -> {ok, list(trade() | market_data())}.
+events(Stock, Date, Filters) ->
+  {ok, Iterator} = init_reader(Stock, Date, Filters),
+  events(Iterator).
+
 %% @doc Read all events for stock and date
 -spec events(stock(), date()) -> {ok, list(trade() | market_data())}.
 events(Stock, Date) ->
-  {ok, Iterator} = init_reader(Stock, Date, []),
-  events(Iterator).
+  events(Stock, Date, []).
 
 %% @doc Just read all events from stockdb
 -spec events(stockdb()|iterator()) -> {ok, list(trade() | market_data())}.
