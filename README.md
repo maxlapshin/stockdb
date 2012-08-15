@@ -25,14 +25,14 @@ Appender
 
 Now lets explain, what is happening.
 
-* Open appender. Stock name should be a symbol, date should either erlang date {YYYY,MM,DD}, either a string "YYYY-MM-DD".
+* Open appender. Stock name should be a symbol, date should either erlang date `{YYYY,MM,DD}`, either a string `"YYYY-MM-DD"`.
 * Don't forget to specify proper depth. If you skip it, default depth is 1 and you will save only best bid and best ask
-* Specify also {scale, 1000} option, if you want to store quotes with precision less than 1 cent. Stockdb stores your prices as int: round(Price*Scale)
+* Specify also `{scale, 1000}` option, if you want to store quotes with precision less than 1 cent. Stockdb stores your prices as int: `round(Price*Scale)`
 * Now append market data.
 * Market data is following: ```{md, UtcMilliseconds, [{L1BidPrice,L1BidSize},{L2BidPrice,L2BidSize}..], [{L1AskPrice,L2AskSize}..]}```
 * You can include ```-include_lib("stockdb/include/stockdb.hrl").``` to use ```#md{}``` and ```#trade{}``` records
 
-Now take a look at db/stock folder. There you can see new file db/stock/NASDAQ.AAPL-2012-01-15.stock and now you can read back stocks from it.
+Now take a look at db/stock folder. There you can see new file `db/stock/NASDAQ.AAPL-2012-01-15.stock` and now you can read back stocks from it.
 
 
 Reader
@@ -42,4 +42,80 @@ The most simple way is just to read all daily events to replaying them
 
     {ok, Events} = stockdb:events('NASDAQ.AAPL', "2012-01-15").
 
-But there are possible more enhanced ways of limiting amount of loaded data. Will be described soon.
+But there are possible more enhanced ways of limiting amount of loaded data.
+
+
+Iterator
+-----
+
+If you need something more complex than just getting all data from DB for stock/date pair, you can use iterators.
+Iterator is database opened for read-only with (optionally) filters applied on it.
+You can read iterator's events one-by-one, saving memory by not keeping extracted data.
+
+Basic iterator is created as follows:
+
+    {ok, Iterator} = stockdb:init_reader('NASDAQ.AAPL', {2012, 8, 7}, []).
+
+Here first argument is stock, second is date, third is list of filters (empty for basic case).
+
+You can read events one-by-one using `stockdb:read_event/1` function:
+
+    {Event1, Iterator1} = stockdb:read_event(Iterator),
+    {Event2, Iterator2} = stockdb:read_event(Iterator1).
+
+Also, you can call `stockdb:events(Iterator)` to get all events from it.
+
+
+Iterator filters
+----------------
+
+Iterator filters currently may be `{range, Start, End}` or `{filter, FilterFun, FilterState0}`.
+`FilterFun` may be function name from module `stockdb_filters` (currently only `candle`) or
+any function with arity 2 which returns list of emitted events. Filter must accept events from
+previous filter (or `#md{}` and `trade{}` from DB) and `eof` to handle end of underlying source.
+Return value is tuple with list of emitted events on first place and next state on second.
+
+For example, this simple function drops every second event:
+
+    FilterFun = fun
+        (eof, _State) -> {[], eof};
+        (Event, true) -> {[Event], false};
+        (_Event, _Other) -> {[], true}
+      end.
+
+And, we can see it is working:
+
+    25> length(stockdb:events(Iterator)).          
+    20703
+    27> {ok, FIterator} = stockdb:init_reader('NASDAQ.AAPL', "2012-08-07", [{filter, FilterFun, false}]),
+    27> length(stockdb:events(FIterator)).
+    10351
+
+To use pre-defined filters you can just specify filter name:
+
+    28> {ok, CIterator} = stockdb:init_reader('NASDAQ.AAPL', "2012-08-07", [{filter, candle, [{period, 120000}]}]),
+    28> length(stockdb:events(CIterator)).
+    2242
+
+StockDB index is optimized for fast timestamp seeking, so you can use `{range, Start, End}` pseudo-filter. Start and End
+are both millisecond timestamps or erlang-style `{HH, MM, SS}` tuples (tuples will work only over DB source, not over other iterator):
+
+    31> {ok, RIterator} = stockdb:init_reader('NASDAQ.AAPL', "2012-08-07", [{range, {14,0,0}, {15,0,0}}]),
+    31> length(stockdb:events(RIterator)).
+    5139
+
+Of course, you may specify multiple filters:
+
+    32> {ok, RFCIterator} = stockdb:init_reader('NASDAQ.AAPL', "2012-08-07", [{range, {14,0,0}, {15,0,0}}, {filter, FilterFun, false}, {filter, candle, [{period, 120000}]}]),
+    32> length(stockdb:events(RFCIterator)).
+    372                                   
+
+Also, iterators may cascade:
+
+    35> {ok, RIterator_F} = stockdb:init_reader(RIterator, [{filter, FilterFun, false}]),
+    35> {ok, RIterator_F_C} = stockdb:init_reader(RIterator_F, [{filter, candle, [{period, 120000}]}]),
+    35> length(stockdb:events(RIterator_F_C)).
+    372
+    36> stockdb:events(RIterator_F_C) == stockdb:events(RFCIterator).
+    true
+   
