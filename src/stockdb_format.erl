@@ -11,8 +11,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include("../include/stockdb.hrl").
 
-%-on_load(init_nif/0).
-%-export([read_one_row/2, read_one_row/3, read_one_row/4]).
+% -on_load(init_nif/0).
 
 -export([encode_full_md/2, encode_full_md/3, decode_full_md/2]).
 -export([encode_delta_md/2, encode_delta_md/3, decode_delta_md/2]).
@@ -59,7 +58,7 @@ append_full_PV({Price, Volume}, Acc) when is_integer(Price) andalso is_integer(V
 
 -spec decode_full_md(Buffer::binary(), Depth::integer()) ->
   {Timestamp::integer(), BidAsk::[{Price::integer(), Volume::integer()}], ByteCount::integer()}.
-decode_full_md(<<1:1, Timestamp:63/integer, BidAskTail/binary>>, Depth) ->
+decode_full_md(<<1:1, 0:1, Timestamp:62/integer, BidAskTail/binary>>, Depth) ->
   {Bid, AskTail} = decode_full_bidask(BidAskTail, Depth),
   {Ask, _Tail} = decode_full_bidask(AskTail, Depth),
   {Timestamp, Bid, Ask, 8 + 2*2*Depth*4}.
@@ -163,15 +162,18 @@ decode_packet(Bin, Depth) ->
       {error, {Type, Message}}
   end.
 
-do_decode_packet(<<1:1, 0:1, _/bitstring>> = Bin, Depth) ->
+do_decode_packet(Bin, Depth) ->
+  do_decode_packet_erl(Bin, Depth).
+
+do_decode_packet_erl(<<1:1, 0:1, _/bitstring>> = Bin, Depth) ->
   {Timestamp, Bid, Ask, Size} = decode_full_md(Bin, Depth),
   {ok, #md{timestamp = Timestamp, bid = Bid, ask = Ask}, Size};
 
-do_decode_packet(<<0:1, _/bitstring>> = Bin, Depth) ->
+do_decode_packet_erl(<<0:1, _/bitstring>> = Bin, Depth) ->
   {TimeDelta, DBid, DAsk, Size} = decode_delta_md(Bin, Depth),
   {ok, {delta_md, TimeDelta, DBid, DAsk}, Size};
 
-do_decode_packet(<<1:1, 1:1, _/bitstring>> = Bin, _Depth) ->
+do_decode_packet_erl(<<1:1, 1:1, _/bitstring>> = Bin, _Depth) ->
   {Timestamp, Price, Volume, Size} = decode_trade(Bin),
   {ok, #trade{timestamp = Timestamp, price = Price, volume = Volume}, Size}.
 
@@ -188,16 +190,19 @@ decode_packet(Bin, Depth, PrevMD, Scale) ->
       {error, {Type, Message}}
   end.
 
-do_decode_packet(<<1:1, 0:1, _/bitstring>> = Bin, Depth, _PrevMD, Scale) ->
+do_decode_packet(Bin, Depth, PrevMD, Scale) ->
+  do_decode_packet_erl(Bin, Depth, PrevMD, Scale).
+
+do_decode_packet_erl(<<1:1, 0:1, _/bitstring>> = Bin, Depth, _PrevMD, Scale) ->
   {Timestamp, Bid, Ask, Size} = decode_full_md(Bin, Depth),
   {ok, #md{timestamp = Timestamp, bid = unscale(Bid, Scale), ask = unscale(Ask, Scale)}, Size};
 
-do_decode_packet(<<0:1, _/bitstring>> = Bin, Depth, #md{} = PrevMD, Scale) ->
+do_decode_packet_erl(<<0:1, _/bitstring>> = Bin, Depth, #md{} = PrevMD, Scale) ->
   {TimeDelta, DBid, DAsk, Size} = decode_delta_md(Bin, Depth),
   Result = apply_delta(PrevMD, #md{timestamp = TimeDelta, bid = unscale(DBid, Scale), ask = unscale(DAsk, Scale)}),
   {ok, Result, Size};
 
-do_decode_packet(<<1:1, 1:1, _/bitstring>> = Bin, _Depth, _PrevMD, Scale) ->
+do_decode_packet_erl(<<1:1, 1:1, _/bitstring>> = Bin, _Depth, _PrevMD, Scale) ->
   {Timestamp, Price, Volume, Size} = decode_trade(Bin),
   {ok, #trade{timestamp = Timestamp, price = Price/Scale, volume = Volume}, Size}.
 
@@ -235,15 +240,6 @@ compute_delta(BidAsk1, BidAsk2) when is_list(BidAsk1) andalso is_list(BidAsk2) -
 
 get_timestamp(<<1:1, _:1/integer, Timestamp:62/integer, _/binary>>) ->
   Timestamp.
-
-read_one_row(_Bin, _Depth) ->
-  erlang:error(nif_not_loaded).
-
-read_one_row(_Bin, _Depth, _Previous) ->
-  erlang:error(nif_not_loaded).
-
-read_one_row(_Bin, _Depth, _Previous, _Scale) ->
-  erlang:error(nif_not_loaded).
 
 
 %% @doc serialize header value, used when writing header

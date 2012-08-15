@@ -22,6 +22,20 @@ static inline void bit_init(struct BitReader *br, unsigned char *bytes, unsigned
   br->offset = 0;
 }
 
+static inline unsigned bits_remain(struct BitReader *br) {
+  return br->size*8 - br->offset;
+}
+
+static inline int bits_skip(struct BitReader *br, unsigned size) {
+  if(br->offset + size >= br->size*8) return 0;
+  br->offset += size;
+  return 1;
+}
+
+static inline unsigned char *bits_head(struct BitReader *br) {
+  return &br->bytes[br->offset / 8];
+}
+
 static inline int bit_look(struct BitReader *br, unsigned char *bit) {
   unsigned offset = br->offset;
   if(br->offset == br->size*8) return 0;
@@ -88,18 +102,37 @@ static inline unsigned bits_byte_offset(struct BitReader *br) {
 }
 
 
+typedef struct leb128_byte {
+  unsigned char flag:1;
+  unsigned char payload:7;
+} leb128_byte;
+
 static inline int leb128_decode_unsigned(struct BitReader *br, uint64_t *result_p) {
   uint64_t result = 0;
   int shift = 0;
   unsigned char move_on = 1;
-  while(move_on) {
-    if(!bit_get(br, &move_on)) return 0;
-    uint64_t chunk;
-    if(!bits_get(br, 7, &chunk)) return 0;
-    result |= (chunk << shift);
-    // fprintf(stderr, "ULeb: %d, %llu, %llu\r\n", move_on, chunk, result);
-    shift += 7;
+
+  if(br->offset & 0x7) {
+    while(move_on) {
+      if(!bit_get(br, &move_on)) return 0;
+      uint64_t chunk;
+      if(!bits_get(br, 7, &chunk)) return 0;
+      result |= (chunk << shift);
+      // fprintf(stderr, "ULeb: %d, %llu, %llu\r\n", move_on, chunk, result);
+      shift += 7;
+    }
+  } else {
+    while(move_on) {
+      if(bits_remain(br) < 8) return 0;
+      unsigned char b = *bits_head(br);
+      move_on = b >> 7;
+      result = (b & 0x7F) << shift;
+      fprintf(stderr, "Byte: %u, %u/%u\r\n", b, move_on, b & 0x7F);
+      shift += 7;
+      bits_skip(br, 8);
+    }
   }
+  
   *result_p = result;
   return 1;
 }
@@ -109,14 +142,28 @@ static inline int leb128_decode_signed(struct BitReader *br, int64_t *result_p) 
   int shift = 0;
   unsigned char move_on = 1;
   unsigned char sign = 0;
-  while(move_on) {
-    if(!bit_get(br, &move_on)) return 0;
-    if(!bit_look(br, &sign)) return 0;
-    uint64_t chunk;
-    if(!bits_get(br, 7, &chunk)) return 0;
-    result |= (chunk << shift);
-    // fprintf(stderr, "SLeb: %d, %llu, %lld\r\n", move_on, chunk, sign ? result | - (1 << shift) :  result);
-    shift += 7;
+  if(br->offset & 0x7) {
+    while(move_on) {
+      if(!bit_get(br, &move_on)) return 0;
+      if(!bit_look(br, &sign)) return 0;
+      uint64_t chunk;
+      if(!bits_get(br, 7, &chunk)) return 0;
+      result |= (chunk << shift);
+      // fprintf(stderr, "SLeb: %d, %llu, %lld\r\n", move_on, chunk, sign ? result | - (1 << shift) :  result);
+      shift += 7;
+    }
+  } else {
+    fprintf(stderr, "Aligned access\r\n");
+    while(move_on) {
+      if(bits_remain(br) < 8) return 0;
+      unsigned char b = *bits_head(br);
+      move_on = b >> 7;
+      sign = (b >> 6) & 1;
+      result = (b & 0x7F) << shift;
+      shift += 7;
+      bits_skip(br, 8);
+    }
+    
   }
   if(sign) {
     result |= - (1 << shift);
@@ -126,10 +173,8 @@ static inline int leb128_decode_signed(struct BitReader *br, int64_t *result_p) 
 }
 
 
-static int decode_delta(struct BitReader *br, int64_t *result) {
-  unsigned char delta;
-  if(!bit_get(br, &delta)) return 0;
-  if(delta) {
+static int decode_delta(struct BitReader *br, int64_t *result, char flag) {
+  if(flag) {
     return leb128_decode_signed(br, result);
   } else {
     *result = 0;
@@ -159,11 +204,15 @@ read_one_row(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
   
   const ERL_NIF_TERM *prev;
 
+  char bid_price_deltas[depth];
   int64_t bid_prices[depth];
+  char bid_size_deltas[depth];
   uint64_t bid_sizes[depth];
   ERL_NIF_TERM bid[depth];
 
+  char ask_price_deltas[depth];
   int64_t ask_prices[depth];
+  char ask_size_deltas[depth];
   uint64_t ask_sizes[depth];
   ERL_NIF_TERM ask[depth];
   int i;
@@ -208,7 +257,7 @@ read_one_row(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
       return enif_make_tuple3(env,
         enif_make_atom(env, "ok"),
         enif_make_tuple4(env, tag, enif_make_uint64(env, timestamp), price, volume),
-        enif_make_sub_binary(env, argv[0], shift, bin.size - shift)
+        enif_make_uint64(env, shift)
         );
     }
     if(bin.size < 8 + 2*2*depth*4) return make_error(env, "more_data_for_full_md");
@@ -226,7 +275,44 @@ read_one_row(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
     }
   } else {
     unpacking_delta = 0;
-    tag = enif_make_atom(env, "delta");
+    tag = enif_make_atom(env, "delta_md");
+    
+    if(!bits_skip(&br, 3)) return make_error(env, "more_data_for_bidask_delta_flags");
+    
+    bzero(bid_price_deltas, sizeof(bid_price_deltas));
+    bzero(bid_size_deltas, sizeof(bid_size_deltas));
+    bzero(ask_price_deltas, sizeof(ask_price_deltas));
+    bzero(ask_size_deltas, sizeof(ask_size_deltas));
+    
+    for(i = 0; i < depth; i++) {
+      unsigned char d;
+      if(!bit_get(&br, &d)) return make_error(env, "more_data_for_bidask_delta_flags");
+      bid_price_deltas[i] = d;
+      if(!bit_get(&br, &d)) return make_error(env, "more_data_for_bidask_delta_flags");
+      bid_size_deltas[i] = d;
+    }
+
+    for(i = 0; i < depth; i++) {
+      unsigned char d;
+      if(!bit_get(&br, &d)) return make_error(env, "more_data_for_bidask_delta_flags");
+      ask_price_deltas[i] = d;
+      if(!bit_get(&br, &d)) return make_error(env, "more_data_for_bidask_delta_flags");
+      ask_size_deltas[i] = d;
+    }
+    
+    bits_align(&br);
+    
+    if(!leb128_decode_unsigned(&br, (uint64_t *)&timestamp)) return make_error(env, "more_data_for_delta_ts");
+
+    for(i = 0; i < depth; i++) {
+      if(!decode_delta(&br, (int64_t *)&bid_prices[i], bid_price_deltas[i])) return make_error(env, "more_data_for_delta_bid");
+      if(!decode_delta(&br, (int64_t *)&bid_sizes[i], bid_size_deltas[i])) return make_error(env, "more_data_for_delta_bid");
+    }
+    for(i = 0; i < depth; i++) {
+      if(!decode_delta(&br, (int64_t *)&ask_prices[i], ask_price_deltas[i])) return make_error(env, "more_data_for_delta_ask");
+      if(!decode_delta(&br, (int64_t *)&ask_sizes[i], ask_size_deltas[i])) return make_error(env, "more_data_for_delta_ask");
+    }
+    
 
     if(argc >= 3) {
       // And this means that we will append delta values to previous row
@@ -235,20 +321,7 @@ read_one_row(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
       int arity = 0;
       if(!enif_get_tuple(env, argv[2], &arity, &prev)) return make_error(env, "need_prev");
       if(arity != 4) return make_error(env, "need_prev_arity_4");
-    }
-    
-    if(!leb128_decode_unsigned(&br, (uint64_t *)&timestamp)) return make_error(env, "more_data_for_delta_ts");
 
-    for(i = 0; i < depth; i++) {
-      if(!decode_delta(&br, (int64_t *)&bid_prices[i])) return make_error(env, "more_data_for_delta_bid");
-      if(!decode_delta(&br, (int64_t *)&bid_sizes[i])) return make_error(env, "more_data_for_delta_bid");
-    }
-    for(i = 0; i < depth; i++) {
-      if(!decode_delta(&br, (int64_t *)&ask_prices[i])) return make_error(env, "more_data_for_delta_ask");
-      if(!decode_delta(&br, (int64_t *)&ask_sizes[i])) return make_error(env, "more_data_for_delta_ask");
-    }
-    
-    if(unpacking_delta) {
       ErlNifUInt64 prev_ts;
       if(!enif_get_uint64(env, prev[1], &prev_ts)) return make_error(env, "need_prev_ts");
       timestamp += prev_ts;
@@ -323,7 +396,7 @@ read_one_row(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
       enif_make_list_from_array(env, bid, depth),
       enif_make_list_from_array(env, ask, depth)
     ),
-    enif_make_sub_binary(env, argv[0], shift, bin.size - shift)
+    enif_make_uint64(env, shift)
     );
 }
 
@@ -338,9 +411,8 @@ static int reload(ErlNifEnv* env, void** priv_data, ERL_NIF_TERM load_info) {
 
 static ErlNifFunc stockdb_funcs[] =
 {
-  {"read_one_row", 2, read_one_row},
-  {"read_one_row", 3, read_one_row},
-  {"read_one_row", 4, read_one_row}
+  {"do_decode_packet", 2, read_one_row},
+  {"do_decode_packet", 4, read_one_row}
 };
 
 
