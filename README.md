@@ -15,8 +15,10 @@ First install and compile it. Include it as a rebar dependency.
 
 It can be used either as an appender, either as reader. You cannot mix these two modes now.
 
-Appender
-------
+Writing database: Appender
+==========================
+
+Typical workflow when appending data to DB:
 
     {ok, Appender} = stockdb:open_appender('NASDAQ.AAPL', "2012-01-15", [{depth, 2}]),
     {ok, Appender1} = stockdb:append({md, 1326601810453, [{450.1,100},{449.56,1000}], [{452.43,20},{454.15,40}]}),
@@ -35,8 +37,11 @@ Now lets explain, what is happening.
 Now take a look at db/stock folder. There you can see new file `db/stock/NASDAQ.AAPL-2012-01-15.stock` and now you can read back stocks from it.
 
 
-Reader
------
+Reading database
+================
+
+Read whole DB
+-------------
 
 The most simple way is just to read all daily events to replaying them
 
@@ -46,7 +51,7 @@ But there are possible more enhanced ways of limiting amount of loaded data.
 
 
 Iterator
------
+--------
 
 If you need something more complex than just getting all data from DB for stock/date pair, you can use iterators.
 Iterator is database opened for read-only with (optionally) filters applied on it.
@@ -62,6 +67,8 @@ You can read events one-by-one using `stockdb:read_event/1` function:
 
     {Event1, Iterator1} = stockdb:read_event(Iterator),
     {Event2, Iterator2} = stockdb:read_event(Iterator1).
+
+When there are no more events, `eof` event is returned. Make sure your code handles it well!
 
 Also, you can call `stockdb:events(Iterator)` to get all events from it.
 
@@ -118,4 +125,17 @@ Also, iterators may cascade:
     372
     36> stockdb:events(RIterator_F_C) == stockdb:events(RFCIterator).
     true
-   
+
+
+Self-sufficient read-only state
+-------------------------------
+
+Function `stockdb:init_reader/3` currently accesses file directly. If you have distributed setup, it will fail. Stockdb is able to bypass this by using a lower-level `stockdb:open_read/2`.
+`open_read/2` returns in-memory read-only database state with full buffer and file descriptor closed. Actually, `stockdb:init_reader/3` first opens DB using `stockdb:open_read/2` and then calls `stockdb:init_reader/2` on it. So does `stockdb:events/2`. You can do the same:
+
+    42> {ok, S} = stockdb:open_read('NASDAQ.AAPL', {2012, 8,7}),
+    42> {ok, Iterator} = stockdb:init_reader(S, []),
+    42> stockdb:events(S) == stockdb:events(Iterator).
+    true
+
+Note that we still use the same Iterator which matches perfectly. `stockdb:init_reader(S, [])` can be called when original file is unavailable allowing to minimize network load when DB content is needed on other node.
