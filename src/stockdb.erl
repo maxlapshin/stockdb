@@ -39,7 +39,7 @@ stocks(Storage) -> stockdb_fs:stocks(Storage).
 
 
 %% @doc List of available dates for stock
--spec dates(stock()) -> [date()].
+-spec dates(stock()|{any(),stock()}) -> [date()].
 dates(Stock) -> stockdb_fs:dates(Stock).
 
 %% @doc List of available dates in remote database
@@ -56,7 +56,7 @@ common_dates(Storage, Stocks) -> stockdb_fs:common_dates(Storage, Stocks).
 
 
 %% @doc Open stock for reading
--spec open_read(stock(), date()) -> {ok, stockdb()} | {error, Reason::term()}.  
+-spec open_read(stock()|{any(),stock()}, date()) -> {ok, stockdb()} | {error, Reason::term()}.  
 open_read(Stock, Date) ->
   stockdb_reader:open(stockdb_fs:path(Stock, Date)).
 

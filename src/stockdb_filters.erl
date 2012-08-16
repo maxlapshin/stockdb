@@ -80,10 +80,10 @@ accumulate_md(#md{bid = [{Bid,_}|_], ask = [{Ask,_}|_]} = MD, #candle{high_ask =
 test_candle(Input) ->
   MDList = lists:map(fun(N) ->
     {Bid,Ask} = lists:nth(N,Input),
-    {md, N, [{Bid,0}], [{Ask,0}]}
+    #md{timestamp = N, bid = [{Bid,0}], ask = [{Ask,0}]}
   end, lists:seq(1,length(Input))),
   Events = run_filter(fun candle/2, MDList),
-  [{Bid,Ask} || {md, _, [{Bid,_}], [{Ask,_}]} <- Events].
+  [{Bid,Ask} || #md{bid = [{Bid,_}], ask = [{Ask,_}]} <- Events].
 
 
 run_filter(Fun, List) ->

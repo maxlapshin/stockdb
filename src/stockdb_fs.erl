@@ -26,6 +26,7 @@ root() ->
 
 
 %% @doc Return path to DB file for given stock and date
+-spec path(stock() | {any(), stock()}, date()) -> file:name().
 path(wildcard, Date) ->
   path('*', Date);
 
