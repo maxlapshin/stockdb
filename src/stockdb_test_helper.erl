@@ -14,7 +14,10 @@ fixturefile(F) ->
 
 
 testdir() ->
-  code:lib_dir(stockdb, test).
+  case code:lib_dir(stockdb, test) of
+    {error, bad_name} -> "test";
+    Else -> Else
+  end.
 
 tempdir() ->
   filename:join(testdir(), "temp").

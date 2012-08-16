@@ -1,7 +1,7 @@
 -module(stockdb_appender_tests).
 -include_lib("eunit/include/eunit.hrl").
 
--import(stockdb_test_helper, [tempfile/1, fixturefile/1, ensure_states_equal/2, write_events_to_file/2, append_events_to_file/2, ensure_packets_equal/2, chunk_content/1]).
+-import(stockdb_test_helper, [tempfile/1, tempdir/0, fixturefile/1, ensure_states_equal/2, write_events_to_file/2, append_events_to_file/2, ensure_packets_equal/2, chunk_content/1]).
 
 
 file_create_test() ->
@@ -25,6 +25,17 @@ db_no_regress(OldFile, NewFile) ->
   % TODO: Make something intelligent
   ?assertEqual(file:read_file(OldFile), file:read_file(NewFile)).
 
+
+append_typed_stock_test() ->
+  application:load(stockdb),
+  application:set_env(stockdb, root, tempdir()),
+  Path = tempdir() ++ "/daily/TEST-2012-07-25.stock",
+  file:delete(Path),
+  {ok, DB} = stockdb:open_append({daily, 'TEST'}, "2012-07-25", [{depth,3}]),
+  Info = stockdb:info(DB),
+  ?assertEqual(Path, proplists:get_value(path, Info)),
+  file:delete(Path),
+  ok.
 
 append_bm_test() ->
   File = tempfile("append-bm-test.temp"),
