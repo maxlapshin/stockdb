@@ -63,7 +63,9 @@ open_read(Stock, Date) ->
 %% @doc Open stock for appending
 -spec open_append(stock(), date(), [open_option()]) -> {ok, stockdb()} | {error, Reason::term()}.  
 open_append(Stock, Date, Opts) ->
-  stockdb_appender:open(stockdb_fs:path(Stock, Date), [{stock,Stock},{date,stockdb_fs:parse_date(Date)}|Opts]).
+  Path = stockdb_fs:path(Stock, Date),
+  {db, RealStock, RealDate} = stockdb_fs:file_info(Path),
+  stockdb_appender:open(Path, [{stock,RealStock},{date,stockdb_fs:parse_date(RealDate)}|Opts]).
 
 %% @doc Append row to db
 -spec append(stockdb(), trade() | market_data()) -> {ok, stockdb()} | {error, Reason::term()}.
