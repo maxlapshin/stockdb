@@ -22,6 +22,9 @@
 %% Iterator API
 -export([init_reader/2, init_reader/3, read_event/1]).
 
+%% Shortcut helpers
+-export([candle/2, candle/3]).
+
 %% Run tests
 -export([run_tests/0]).
 
@@ -84,18 +87,18 @@ info(Stock, Date, Fields) ->
   stockdb_reader:file_info(stockdb_fs:path(Stock, Date), Fields).
 
 %% @doc Get all events from filtered stock/date
--spec events(stock(), date(), [term()]) -> {ok, list(trade() | market_data())}.
+-spec events(stock(), date(), [term()]) -> list(trade() | market_data()).
 events(Stock, Date, Filters) ->
   {ok, Iterator} = init_reader(Stock, Date, Filters),
   events(Iterator).
 
 %% @doc Read all events for stock and date
--spec events(stock(), date()) -> {ok, list(trade() | market_data())}.
+-spec events(stock(), date()) -> list(trade() | market_data()).
 events(Stock, Date) ->
   events(Stock, Date, []).
 
 %% @doc Just read all events from stockdb
--spec events(stockdb()|iterator()) -> {ok, list(trade() | market_data())}.
+-spec events(stockdb()|iterator()) -> list(trade() | market_data()).
 events(#dbstate{} = Stockdb) ->
   {ok, Iterator} = init_reader(Stockdb, []),
   events(Iterator);
@@ -150,9 +153,22 @@ close(#dbstate{file = F} = _Stockdb) ->
 
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%       Helpers
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+-spec candle(stock(), date()) -> {price(),price(),price(),price()}.
+candle(Stock, Date) ->
+  candle(Stock, Date, []).
+
+
+-spec candle(stock(), date(), list(reader_option())) -> {price(),price(),price(),price()}.
+candle(Stock, Date, Options) ->
+  stockdb_helpers:candle(Stock, Date, Options).
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %       Configuration
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
+%% @private
 %% @doc get configuration value with fallback to given default
 get_value(Key, Default) ->
   case application:get_env(?MODULE, Key) of
@@ -160,6 +176,7 @@ get_value(Key, Default) ->
     undefined -> Default
   end.
 
+%% @private
 %% @doc get configuration value, raise error if not found
 get_value(Key) ->
   case application:get_env(?MODULE, Key) of
@@ -172,6 +189,7 @@ get_value(Key) ->
 %       Testing
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
+%% @private
 run_tests() ->
   eunit:test({application, stockdb}).
 
