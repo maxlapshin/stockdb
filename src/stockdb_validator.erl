@@ -63,6 +63,7 @@ validate_chunk(<<>>, _, State) ->
   {ok, State};
 
 validate_chunk(Chunk, Offset, #dbstate{last_md = MD, depth = Depth, scale = Scale} = State) ->
+  % ?debugFmt("decode_packet ~B/~B ~B ~B ~p", [Offset, size(Chunk),Depth, Scale, MD]),
   case stockdb_format:decode_packet(Chunk, Depth, MD, Scale) of
     {ok, {md, TS, _Bid, _Ask} = NewMD, Size} ->
       <<_:Size/binary, Rest/binary>> = Chunk,

@@ -27,7 +27,7 @@ static inline unsigned bits_remain(struct BitReader *br) {
 }
 
 static inline int bits_skip(struct BitReader *br, unsigned size) {
-  if(br->offset + size >= br->size*8) return 0;
+  if(br->offset + size > br->size*8) return 0;
   br->offset += size;
   return 1;
 }
@@ -49,6 +49,23 @@ static inline int bit_get(struct BitReader *br, unsigned char *bit) {
   // fprintf(stderr, "Bit: %d\r\n", bit);
   return 1;
 }
+
+static inline int bits_read32(struct BitReader *br, int32_t *result) {
+  if(br->offset + 32 > br->size*8 || br->offset % 8 != 0) return 0;
+  unsigned char *p1,*p2;
+  p1 = &br->bytes[br->offset / 8];
+  p2 = (unsigned char *)result;
+  
+  p2[0] = p1[3];
+  p2[1] = p1[2];
+  p2[2] = p1[1];
+  p2[3] = p1[0];
+  br->offset += 32;
+  return 1;
+}
+
+
+
 
 static inline int bits_get(struct BitReader *br, int bits, uint64_t *result_p) {
   uint64_t result = 0;
@@ -91,10 +108,10 @@ static inline int bits_get(struct BitReader *br, int bits, uint64_t *result_p) {
 
 static inline void bits_align(struct BitReader *br) {
   if(br->offset % 8 == 0) return;
-  br->offset = ((br->offset / 8)+1)*8;
-  if(br->offset > br->size*8) {
-    br->offset = br->size*8;
-  }
+  br->offset = ((br->offset >> 3)+1) << 3;
+  // if(br->offset > br->size*8) {
+  //   br->offset = br->size*8;
+  // }
 }
 
 static inline unsigned bits_byte_offset(struct BitReader *br) {
@@ -126,8 +143,7 @@ static inline int leb128_decode_unsigned(struct BitReader *br, uint64_t *result_
       if(bits_remain(br) < 8) return 0;
       unsigned char b = *bits_head(br);
       move_on = b >> 7;
-      result = (b & 0x7F) << shift;
-      fprintf(stderr, "Byte: %u, %u/%u\r\n", b, move_on, b & 0x7F);
+      result |= (b & 0x7F) << shift;
       shift += 7;
       bits_skip(br, 8);
     }
@@ -153,13 +169,12 @@ static inline int leb128_decode_signed(struct BitReader *br, int64_t *result_p) 
       shift += 7;
     }
   } else {
-    fprintf(stderr, "Aligned access\r\n");
     while(move_on) {
       if(bits_remain(br) < 8) return 0;
       unsigned char b = *bits_head(br);
       move_on = b >> 7;
       sign = (b >> 6) & 1;
-      result = (b & 0x7F) << shift;
+      result |= (b & 0x7F) << shift;
       shift += 7;
       bits_skip(br, 8);
     }
@@ -205,15 +220,15 @@ read_one_row(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
   const ERL_NIF_TERM *prev;
 
   char bid_price_deltas[depth];
-  int64_t bid_prices[depth];
+  int32_t bid_prices[depth];
   char bid_size_deltas[depth];
-  uint64_t bid_sizes[depth];
+  uint32_t bid_sizes[depth];
   ERL_NIF_TERM bid[depth];
 
   char ask_price_deltas[depth];
-  int64_t ask_prices[depth];
+  int32_t ask_prices[depth];
   char ask_size_deltas[depth];
-  uint64_t ask_sizes[depth];
+  uint32_t ask_sizes[depth];
   ERL_NIF_TERM ask[depth];
   int i;
   
@@ -239,7 +254,9 @@ read_one_row(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
     if(!bit_get(&br, &trade_or_md)) return enif_make_badarg(env);
 
     if(trade_or_md) { // this means trade encoded
+      // fprintf(stderr, "Read trade %d\r\n", bin.size);
       if(bin.size < 8 + 2*4) return make_error(env, "more_data_for_trade");
+      
       
       tag = enif_make_atom(env, "trade");
       if(!bits_get(&br, 62, &timestamp)) return make_error(env, "more_data_for_trade_ts");
@@ -260,22 +277,31 @@ read_one_row(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
         enif_make_uint64(env, shift)
         );
     }
-    if(bin.size < 8 + 2*2*depth*4) return make_error(env, "more_data_for_full_md");
+    
+    // fprintf(stderr, "Read full md %d\r\n", bin.size);
+    
+    if(bin.size < 8 + 2*2*depth*4) {
+      // fprintf(stderr, "Only %d bytes for depth %d, %d\r\n", (int)bin.size, (int)depth, (int)(8 + 2*2*depth*4));
+      return make_error(env, "more_data_for_full_md");
+    }
     
     // Here is decoding of simply coded full string
     tag = enif_make_atom(env, "md");
     if(!bits_get(&br, 62, &timestamp)) return make_error(env, "more_data_for_md_ts");
+    
     for(i = 0; i < depth; i++) {
-      if(!bits_get(&br, 32, (uint64_t *)&bid_prices[i])) return make_error(env, "more_data_for_md_bid");
-      if(!bits_get(&br, 32, (uint64_t *)&bid_sizes[i])) return make_error(env, "more_data_for_md_bid");
+      bits_read32(&br, (int32_t *)&bid_prices[i]);
+      bits_read32(&br, (int32_t *)&bid_sizes[i]);
     }
     for(i = 0; i < depth; i++) {
-      if(!bits_get(&br, 32, (uint64_t *)&ask_prices[i])) return make_error(env, "more_data_for_md_ask");
-      if(!bits_get(&br, 32, (uint64_t *)&ask_sizes[i])) return make_error(env, "more_data_for_md_ask");
+      bits_read32(&br, (int32_t *)&ask_prices[i]);
+      bits_read32(&br, (int32_t *)&ask_sizes[i]);
     }
   } else {
     unpacking_delta = 0;
     tag = enif_make_atom(env, "delta_md");
+
+    // fprintf(stderr, "Read delta md %d\r\n", bin.size);
     
     if(!bits_skip(&br, 3)) return make_error(env, "more_data_for_bidask_delta_flags");
     
@@ -304,13 +330,18 @@ read_one_row(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
     
     if(!leb128_decode_unsigned(&br, (uint64_t *)&timestamp)) return make_error(env, "more_data_for_delta_ts");
 
+    int64_t p,v;
     for(i = 0; i < depth; i++) {
-      if(!decode_delta(&br, (int64_t *)&bid_prices[i], bid_price_deltas[i])) return make_error(env, "more_data_for_delta_bid");
-      if(!decode_delta(&br, (int64_t *)&bid_sizes[i], bid_size_deltas[i])) return make_error(env, "more_data_for_delta_bid");
+      if(!decode_delta(&br, &p, bid_price_deltas[i])) return make_error(env, "more_data_for_delta_bid");
+      if(!decode_delta(&br, &v, bid_size_deltas[i])) return make_error(env, "more_data_for_delta_bid");
+      bid_prices[i] = (int32_t)p;
+      bid_sizes[i] = (uint32_t)v;
     }
     for(i = 0; i < depth; i++) {
-      if(!decode_delta(&br, (int64_t *)&ask_prices[i], ask_price_deltas[i])) return make_error(env, "more_data_for_delta_ask");
-      if(!decode_delta(&br, (int64_t *)&ask_sizes[i], ask_size_deltas[i])) return make_error(env, "more_data_for_delta_ask");
+      if(!decode_delta(&br, &p, ask_price_deltas[i])) return make_error(env, "more_data_for_delta_ask");
+      if(!decode_delta(&br, &v, ask_size_deltas[i])) return make_error(env, "more_data_for_delta_ask");
+      ask_prices[i] = (int32_t)p;
+      ask_sizes[i] = (uint32_t)v;
     }
     
 
@@ -329,6 +360,9 @@ read_one_row(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
       ERL_NIF_TERM head, tail;
       
       // add previous values to bid
+      
+      // fprintf(stderr, "Apply delta to MD\r\n");
+      
       tail = prev[2];
       for(i = 0; i < depth; i++) {
         if(!enif_get_list_cell(env, tail, &head, &tail)) return make_error(env, "need_more_bid_in_prev");
@@ -345,6 +379,7 @@ read_one_row(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
           price = price_d*scale;
         } 
         if(!enif_get_int(env, price_vol[1], &volume)) return make_error(env, "need_vol_int_in_prev_bid");
+        // fprintf(stderr, "Adding bid: %d, %d, %f, %f\r\n", (int)bid_prices[i], (int)price, price_d, (bid_prices[i]+price)*1.0/scale);
         bid_prices[i] += price;
         bid_sizes[i] += volume;
       }
@@ -365,9 +400,11 @@ read_one_row(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
           price = price_d*scale;
         } 
         if(!enif_get_int(env, price_vol[1], &volume)) return make_error(env, "need_vol_int_in_prev_ask");
+        // fprintf(stderr, "Adding ask: %d, %d, %f, %f\r\n", (int)ask_prices[i], (int)price, price_d, (ask_prices[i]+price)*1.0/scale);
         ask_prices[i] += price;
         ask_sizes[i] += volume;
       }
+      // fprintf(stderr, "\r\n\r\n\r\n");
     }
     
   }
@@ -375,15 +412,17 @@ read_one_row(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
   bits_align(&br);
   shift = bits_byte_offset(&br);
   
+  // fprintf(stderr, "In the end: %d, %d, %d\r\n", bin.size, br.size, br.offset);
 
-
+  
+  double s = 1.0 / scale;
   for(i = 0; i < depth; i++) {
     bid[i] = enif_make_tuple2(env,
-      scale ? enif_make_double(env, bid_prices[i]*1.0 / scale) : enif_make_int(env, bid_prices[i]),
+      scale ? enif_make_double(env, bid_prices[i]*s) : enif_make_int(env, bid_prices[i]),
       enif_make_int(env, bid_sizes[i])
       );
     ask[i] = enif_make_tuple2(env,
-      scale ? enif_make_double(env, ask_prices[i]*1.0 / scale) : enif_make_int(env, ask_prices[i]),
+      scale ? enif_make_double(env, ask_prices[i]*s) : enif_make_int(env, ask_prices[i]),
       enif_make_int(env, ask_sizes[i])
       );
   }
