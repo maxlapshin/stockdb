@@ -2,8 +2,33 @@
 %%% Testing stuff.
 -compile(export_all).
 -include_lib("eunit/include/eunit.hrl").
+-include("../include/stockdb.hrl").
 -include("stockdb.hrl").
 
+assertEqualMD(MD1, MD2, Opts) ->
+  case compare_md(MD1, MD2) of
+    true -> true;
+    false -> erlang:error({assertEqualMD_failed, Opts ++ [{md1_val,dump_md(MD1)},{md2_val,dump_md(MD2)}]})
+  end.
+
+compare_md(#md{timestamp = T1, bid = Bid1, ask = Ask1}, #md{timestamp = T2, bid = Bid2, ask = Ask2}) ->
+  T1 == T2
+  andalso [false || L <- lists:zipwith(fun compare_pv/2, Bid1, Bid2), L =/= true] == []
+  andalso [false || L <- lists:zipwith(fun compare_pv/2, Ask1, Ask2), L =/= true] == []
+  andalso true;
+
+compare_md(_, _) ->
+  false.
+
+compare_pv({P1,V1},{P2,V2}) when abs(P1 - P2) < 0.0001 andalso V1 == V2 -> true;
+compare_pv(T1,T2) -> {T1,T2}.
+
+
+dump_md(#md{timestamp = T, bid = Bid, ask = Ask}) ->
+  lists:flatten(io_lib:format("#md{timestamp = ~B, bid = ~s, ask = ~s}", [T, dump_pv(Bid), dump_pv(Ask)])).
+
+dump_pv(Bid) ->
+  ["[", string:join([io_lib:format("{~.3f,~B}", [P,V]) || {P,V} <- Bid], ",") ,"]"].
 
 fixturedir() ->
   filename:join(testdir(), "fixtures").

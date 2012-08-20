@@ -1,8 +1,10 @@
 -module(stockdb_format_tests).
 -include("../include/stockdb.hrl").
+-include("stockdb.hrl").
 
 % EUnit tests
 -include_lib("eunit/include/eunit.hrl").
+
 
 full_md_test() ->
   Timestamp = 16#138BDF77CBA,
@@ -14,6 +16,7 @@ full_md_test() ->
   Bin = <<16#80000138BDF77CBA:64/integer,
     1530:32/integer, 250:32/integer,  1520:32/integer, 111:32/integer,
     1673:32/integer, 15:32/integer,   1700:32/integer, 90:32/integer>>,
+  BinSize = byte_size(Bin),
   Tail = <<7, 239, 183, 19>>,
 
   ?assertEqual(Bin, stockdb_format:encode_full_md(#md{timestamp = Timestamp, bid = RealBid, ask = RealAsk}, Scale)),
@@ -21,10 +24,13 @@ full_md_test() ->
   ?assertEqual(Bin, stockdb_format:encode_full_md(Timestamp, Bid, Ask)),
 
   ?assertEqual({Timestamp, Bid, Ask, byte_size(Bin)}, stockdb_format:decode_full_md(<<Bin/binary, Tail/bitstring>>, 2)),
+  
   ?assertEqual({ok, #md{timestamp = Timestamp, bid = Bid, ask = Ask}, byte_size(Bin)},
     stockdb_format:decode_packet(<<Bin/binary, Tail/bitstring>>, 2)),
-  ?assertEqual({ok, #md{timestamp = Timestamp, bid = RealBid, ask = RealAsk}, byte_size(Bin)},
-    stockdb_format:decode_packet(<<Bin/binary, Tail/bitstring>>, 2, #md{}, Scale)).
+  ?assertMatch({ok, #md{}, BinSize}, stockdb_format:decode_packet(<<Bin/binary, Tail/bitstring>>, 2, #md{}, Scale)),
+  {ok, #md{} = MD, _} = stockdb_format:decode_packet(<<Bin/binary, Tail/bitstring>>, 2, #md{}, Scale),
+  ?assertEqualMD(#md{timestamp = Timestamp, bid = RealBid, ask = RealAsk}, MD).
+  
 
 full_md_negative_price_test() ->
   Timestamp = 16#138BDF77CBA,
@@ -62,6 +68,7 @@ delta_md_test() ->
   PrevMD = #md{timestamp = PrevTimestamp, bid = PrevBid, ask = PrevAsk},
 
   Bin = <<0:4,  0:1,1:1, 0:1,0:1, 1:1,1:1, 1:1,1:1,  0:4,   142,2,   124,  154,126, 228,0,  156,127, 81>>,
+  BinSize = byte_size(Bin),
   Tail = <<7, 239, 183, 19>>,
 
   ?assertEqual(Bin, stockdb_format:encode_delta_md(#md{timestamp = Timestamp, bid = RealBid, ask = RealAsk}, PrevMD, Scale)),
@@ -69,8 +76,11 @@ delta_md_test() ->
   ?assertEqual(Bin, stockdb_format:encode_delta_md(DTimestamp, DBid, DAsk)),
   ?assertEqual({DTimestamp, DBid, DAsk, byte_size(Bin)}, stockdb_format:decode_delta_md(<<Bin/bitstring, Tail/bitstring>>, 2)),
   ?assertEqual({ok, {delta_md, DTimestamp, DBid, DAsk}, byte_size(Bin)}, stockdb_format:decode_packet(<<Bin/bitstring, Tail/bitstring>>, 2)),
-  ?assertEqual({ok, #md{timestamp = Timestamp, bid = RealBid, ask = RealAsk}, byte_size(Bin)},
-    stockdb_format:decode_packet(<<Bin/binary, Tail/bitstring>>, 2, PrevMD, Scale)).
+  ?assertMatch({ok, _MD, BinSize}, stockdb_format:decode_packet(<<Bin/binary, Tail/bitstring>>, 2, PrevMD, Scale)),
+
+  {ok, #md{} = MD, _} = stockdb_format:decode_packet(<<Bin/binary, Tail/bitstring>>, 2, PrevMD, Scale),
+  ?assertEqualMD(#md{timestamp = Timestamp, bid = RealBid, ask = RealAsk}, MD).
+
 
 trade_test() ->
   Timestamp = 16#138BDF77CBA,

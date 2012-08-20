@@ -55,3 +55,6 @@
 	  end)(Expect))).
 
 -define(_assertEqualEps(Expect, Expr), ?_test(?assertEqualEps(Expect, Expr))).
+
+-define(assertEqualMD(MD1, MD2), 
+  stockdb_test_helper:assertEqualMD(MD1, MD2, [{module,?MODULE},{line,?LINE},{md1,(??MD1)},{md2,(??MD2)}])).

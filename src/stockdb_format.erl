@@ -11,7 +11,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include("../include/stockdb.hrl").
 
-% -on_load(init_nif/0).
+-on_load(init_nif/0).
 
 -export([encode_full_md/2, encode_full_md/3, decode_full_md/2]).
 -export([encode_delta_md/2, encode_delta_md/3, decode_delta_md/2]).
