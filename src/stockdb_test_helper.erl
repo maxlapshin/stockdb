@@ -111,7 +111,7 @@ ensure_packets_equal({md, TS1, Bid1, Ask1}, {md, TS2, Bid2, Ask2}) ->
 
 ensure_bidask_equal([{P1, V1}|BA1], [{P2, V2}|BA2]) ->
   ?assertEqual(V1, V2),
-  ?assert(abs(P1 - P2) < 0.00001),
+  ?assertEqualEps(P1, P2, 0.00001),
   ensure_bidask_equal(BA1, BA2);
 ensure_bidask_equal([], [Extra|BA2]) ->
   ?assertEqual({0.0, 0}, Extra),
@@ -153,14 +153,17 @@ handle_nonequal([P1|EL1], [P2|EL2]) ->
 
 packets_equal(P, P) -> true;
 packets_equal({trade, TS1, P1, V} = P1, {trade, TS2, P2, V} = P2) ->
-  abs(TS1 - TS2) < 10 andalso abs(P1 - P2) < 0.0001;
+  ?assertEqualEps(TS1, TS2, 10),
+  ?assertEqualEps(P1, P2, 0.0001),
+  true;
 packets_equal({md, TS1, Bid1, Ask1}, {md, TS2, Bid2, Ask2}) ->
   abs(TS1 - TS2) < 10 andalso bidask_equal(Bid1, Bid2) andalso bidask_equal(Ask1, Ask2);
 packets_equal(_, _) -> false.
 
 bidask_equal([], []) -> true;
 bidask_equal([{P1, V}|BA1], [{P2, V}|BA2]) ->
-  abs(P1 - P2) < 0.0001 andalso bidask_equal(BA1, BA2);
+  ?assertEqualEps(P1,P2,0.0001),
+  bidask_equal(BA1,BA2);
 bidask_equal(_, _) -> false.
 
 

@@ -38,3 +38,20 @@
 
 -define(NUMBER_OF_CHUNKS(ChunkSize),
   timer:hours(24) div timer:seconds(ChunkSize) + 1).
+
+
+-define(assertEqualEps(Expect, Expr, Eps),
+	((fun (__X) ->
+	    case abs(Expr - Expect) of
+		__Y when __Y < Eps -> ok;
+		__V -> .erlang:error({assertEqualEps_failed,
+				      [{module, ?MODULE},
+				       {line, ?LINE},
+				       {expression, (??Expr)},
+				       {epsilon, io_lib:format("~.5f", [Eps*1.0])},
+				       {expected, io_lib:format("~.4f", [Expect*1.0])},
+				       {value, io_lib:format("~.4f", [Expr*1.0])}]})
+	    end
+	  end)(Expect))).
+
+-define(_assertEqualEps(Expect, Expr), ?_test(?assertEqualEps(Expect, Expr))).
