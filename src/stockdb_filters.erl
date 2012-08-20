@@ -5,7 +5,7 @@
 -include_lib("eunit/include/eunit.hrl").
 
 
--export([candle/2]).
+-export([candle/2, count/2]).
 % -export([average/2]).
 
 -record(candle, {
@@ -121,3 +121,7 @@ candle_test() ->
 
 
 
+count(eof, Count) ->
+  {[Count], Count};
+count(_Event, Count) ->
+  {[], Count + 1}.
