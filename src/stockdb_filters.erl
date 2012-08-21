@@ -9,81 +9,119 @@
 % -export([average/2]).
 
 -record(candle, {
-  period,
-  current_segment,
-  open,
-  high_ask,
-  low_bid,
-  close
+    type = md,
+    period = 30000,
+    current_segment,
+    open,
+    high,
+    low,
+    close
 }).
 
--define(DEFAULT_PERIOD, 30000).
+parse_options([], #candle{} = Candle) ->
+  Candle;
+parse_options([{period, Period}|MoreOpts], #candle{} = Candle) ->
+  parse_options(MoreOpts, Candle#candle{period = Period});
+parse_options([{type, Type}|MoreOpts], #candle{} = Candle) ->
+  parse_options(MoreOpts, Candle#candle{type = Type}).
 
-candle(Event, Candle) when not is_record(Event, md) andalso Event =/= eof ->
-  {[Event], Candle};
 
 candle(Event, undefined) ->
   candle(Event, []);
 
-candle(#md{timestamp = Timestamp} = MD, Opts) when is_list(Opts) ->
-  Period = proplists:get_value(period, Opts, ?DEFAULT_PERIOD),
-  Segment = case Period of
-    undefined -> undefined;
-    Int when is_integer(Int) -> Timestamp div Period
-  end,
-  {[], open_segment(MD, Segment, #candle{period = Period})};
+candle(Packet, Opts) when is_list(Opts) ->
+  Candle = parse_options(Opts, #candle{}), 
+  candle(Packet, Candle);
 
-candle(#md{timestamp = Timestamp} = MD, #candle{period = Period, current_segment = Seg} = Candle) 
-  when Timestamp div Period > Seg ->
-  {Events, Candle1} = flush_segment(Candle),
-  {Events, open_segment(MD, Timestamp div Period, Candle1)};
+candle(#md{} = MD, #candle{type = Type} = Candle) when Type =/= md ->
+  {[MD], Candle};
+
+candle(#trade{} = Trade, #candle{type = Type} = Candle) when Type =/= trade ->
+  {[Trade], Candle};
 
 candle(eof, #candle{} = Candle) ->
   flush_segment(Candle);
 
-candle(#md{} = MD, #candle{} = Candle) ->
-  {[], accumulate_md(MD, Candle)}.
+candle(Unknown, #candle{} = Candle)
+when not is_record(Unknown, md) andalso not is_record(Unknown, trade) ->
+  {[Unknown], Candle};
 
+candle(Packet, #candle{open = undefined, period = Period} = Candle) ->
+  Segment = case Period of
+    undefined -> undefined;
+    Int when is_integer(Int) -> timestamp(Packet) div Period
+  end,
+  {[], start_segment(Segment, Packet, Candle)};
 
-open_segment(MD, Segment, Candle) ->
-  Candle#candle{
-    current_segment = Segment,
-    open = MD,
-    high_ask = MD,
-    low_bid = MD,
-    close = MD
+candle(Packet, #candle{period = undefined} = Candle) ->
+  {[], candle_accumulate(Packet, Candle)};
+
+candle(Packet, #candle{period = Period, current_segment = Seg} = Candle)
+when is_number(Period) andalso is_record(Packet, md) orelse is_record(Packet, trade) ->
+  case timestamp(Packet) div Period of
+    Seg ->
+      {[], candle_accumulate(Packet, Candle)};
+    NewSeg ->
+      {Events, Candle1} = flush_segment(Candle),
+      {Events, start_segment(NewSeg, Packet, Candle1)}
+  end.
+
+start_segment(Segment, Packet, Candle) ->
+  Opened = Candle#candle{current_segment = Segment, open = Packet},
+  candle_accumulate(Packet, Opened).
+
+flush_segment(#candle{open = Open, high = High, low = Low, close = Close} = Candle) ->
+  Events = lists:usort([Open, High, Low, Close]),
+  {Events -- [undefined], Candle#candle{
+      open = undefined,
+      high = undefined,
+      low = undefined,
+      close = undefined}
   }.
 
-flush_segment(#candle{open = Open, high_ask = HighAsk, low_bid = LowBid, close = Close} = Candle) ->
-  Events = lists:usort([Open, HighAsk, LowBid, Close]),
-  {Events -- [undefined], Candle#candle{open = undefined, high_ask = undefined, low_bid = undefined, close = undefined}}.
+
+candle_accumulate(Packet, #candle{high = High, low = Low} = Candle) ->
+  Candle#candle{high = highest(High, Packet), low = lowest(Low, Packet), close = Packet}.
 
 
-accumulate_md(#md{bid = [{Bid,_}|_], ask = [{Ask,_}|_]} = MD, #candle{high_ask = HighAsk, low_bid = LowBid} = Candle) ->
-  HA1 = case HighAsk of
-    undefined -> MD;
-    #md{ask = [{Ask1,_}|_]} when Ask > Ask1 -> MD;
-    _ -> HighAsk
-  end,
-
-  LB1 = case LowBid of
-    undefined -> MD;
-    #md{bid = [{Bid1,_}|_]} when Bid < Bid1 -> MD;
-    _ -> LowBid
-  end,
-  
-  Candle#candle{high_ask = HA1, low_bid = LB1, close = MD}.
+highest(undefined, Packet) ->
+  Packet;
+highest(#md{ask = [{AskL, _}|_]}, #md{ask = [{AskH,_}|_]} = Highest) when AskH > AskL ->
+  Highest;
+highest(#trade{price = PriceL}, #trade{price = PriceH} = Highest) when PriceH > PriceL ->
+  Highest;
+highest(Anything, _NoMatter) ->
+  Anything.
 
 
+lowest(undefined, Packet) ->
+  Packet;
+lowest(#md{bid = [{BidH, _}|_]}, #md{bid = [{BidL,_}|_]} = Lowest) when BidH > BidL ->
+  Lowest;
+lowest(#trade{price = PriceH}, #trade{price = PriceL} = Lowest) when PriceH > PriceL ->
+  Lowest;
+lowest(Anything, _NoMatter) ->
+  Anything.
+
+
+timestamp(#md{timestamp = Timestamp}) -> Timestamp;
+timestamp(#trade{timestamp = Timestamp}) -> Timestamp.
 
 
 test_candle(Input) ->
-  MDList = lists:map(fun(N) ->
-    {Bid,Ask} = lists:nth(N,Input),
-    #md{timestamp = N, bid = [{Bid,0}], ask = [{Ask,0}]}
-  end, lists:seq(1,length(Input))),
+  {MDList, _} = lists:mapfoldl(fun({Bid, Ask}, N) ->
+        MD = #md{timestamp = N, bid = [{Bid,0}], ask = [{Ask,0}]},
+        {MD, N+1}
+    end, 1, Input),
   Events = run_filter(fun candle/2, MDList),
   [{Bid,Ask} || #md{bid = [{Bid,_}], ask = [{Ask,_}]} <- Events].
+
+test_trade_candle(Input) ->
+  {TradeList, _} = lists:mapfoldl(fun(Price, N) ->
+        {#trade{timestamp = N, price = Price, volume = 1}, N+1}
+    end, 1, Input),
+  Events = run_filter(fun candle/2, [{type, trade}], TradeList, []),
+  [Price || #trade{price = Price} <- Events].
 
 
 run_filter(Fun, List) ->
@@ -102,6 +140,10 @@ candle_test() ->
   ?assertEqual([{1,5}, {0,4}, {8,12}], test_candle([{1,5},{2,8},{3,4},{0,4},{5,11},{8,12}])),
   ?assertEqual([{1,5}, {8,12}], test_candle([{1,5},{2,8},{3,4},{5,11},{8,12}])),
   
+  ?assertEqual([1, 0, 10, 8], test_trade_candle([1,2,3,0,5,10,1,8])),
+  ?assertEqual([1, 0, 8], test_trade_candle([1,2,3,0,5,8])),
+  ?assertEqual([1, 8], test_trade_candle([1,2,3,1,5,8])),
+
   N = 100000,
   List = [begin
     Bid = random:uniform(1000),
