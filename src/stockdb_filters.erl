@@ -161,6 +161,10 @@ candle_test() ->
   ?debugFmt("Candle bm: ~B: ~B ms", [N, Delta]),
   ok.
 
+candle_pass_foreign_test() ->
+  ?assertMatch({[#trade{}], #candle{}}, candle(#trade{}, [{type, md}])),
+  ?assertMatch({[#md{}], #candle{}}, candle(#md{}, [{type, trade}])),
+  ok.
 
 
 count(eof, Count) ->
