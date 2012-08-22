@@ -202,6 +202,33 @@ make_error(ErlNifEnv* env, const char *err) {
   return enif_make_tuple2(env, enif_make_atom(env, "error"), enif_make_atom(env, err));
 }
 
+
+static ERL_NIF_TERM
+read_trade(ErlNifEnv* env, struct BitReader *br, int scale) {
+  // fprintf(stderr, "Read trade %d\r\n", bin.size);
+  if(br->size < 8 + 2*4) return make_error(env, "more_data_for_trade");
+
+  uint64_t timestamp;
+  if(!bits_get(br, 62, &timestamp)) return make_error(env, "more_data_for_trade_ts");
+
+  uint64_t p;
+  if(!bits_get(br, 32, &p)) return make_error(env, "more_data_for_trade_price");
+
+  ERL_NIF_TERM price = scale ? enif_make_double(env, p*1.0 / scale) : enif_make_int(env, p);
+
+
+  uint64_t v;
+  if(!bits_get(br, 32, &v)) return make_error(env, "more_data_for_trade_volume");
+  ERL_NIF_TERM volume = enif_make_uint(env, v);
+  unsigned shift = 8 + 2*4;
+  return enif_make_tuple3(env,
+    enif_make_atom(env, "ok"),
+    enif_make_tuple4(env, enif_make_atom(env, "trade"), enif_make_uint64(env, timestamp), price, volume),
+    enif_make_uint64(env, shift)
+    );
+
+}
+
 static ERL_NIF_TERM
 read_one_row(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
 {
@@ -252,28 +279,7 @@ read_one_row(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
     if(!bit_get(&br, &trade_or_md)) return enif_make_badarg(env);
 
     if(trade_or_md) { // this means trade encoded
-      // fprintf(stderr, "Read trade %d\r\n", bin.size);
-      if(bin.size < 8 + 2*4) return make_error(env, "more_data_for_trade");
-      
-      
-      tag = enif_make_atom(env, "trade");
-      if(!bits_get(&br, 62, &timestamp)) return make_error(env, "more_data_for_trade_ts");
-      
-      uint64_t p;
-      if(!bits_get(&br, 32, &p)) return make_error(env, "more_data_for_trade_price");
-      
-      ERL_NIF_TERM price = scale ? enif_make_double(env, p*1.0 / scale) : enif_make_int(env, p);
-      
-      
-      uint64_t v;
-      if(!bits_get(&br, 32, &v)) return make_error(env, "more_data_for_trade_volume");
-      ERL_NIF_TERM volume = enif_make_uint(env, v);
-      shift = 8 + 2*4;
-      return enif_make_tuple3(env,
-        enif_make_atom(env, "ok"),
-        enif_make_tuple4(env, tag, enif_make_uint64(env, timestamp), price, volume),
-        enif_make_uint64(env, shift)
-        );
+      return read_trade(env, &br, scale);
     }
     
     // fprintf(stderr, "Read full md %d\r\n", bin.size);
