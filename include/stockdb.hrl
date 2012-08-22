@@ -1,33 +1,22 @@
--type stockdb() :: {stockdb_pid, pid()} | term().
-
--type price() :: float().
--type volume() :: non_neg_integer().
--type quotes() :: [{price(), volume()}].
--type timestamp() :: non_neg_integer().
--type stock() :: atom().
--type date() :: string().
-
 
 -record(md, {
-  timestamp :: timestamp(),
-  bid :: quotes(),
-  ask :: quotes()
+  timestamp :: stockdb:timestamp(),
+  bid :: [stockdb:quote()],
+  ask :: [stockdb:quote()]
 }).
 
 -record(trade, {
-  timestamp :: timestamp(),
-  price :: price(),
-  volume :: volume()
+  timestamp :: stockdb:timestamp(),
+  price :: stockdb:price(),
+  volume :: stockdb:volume()
 }).
 
--type market_data() :: #md{}.
--type trade() :: #trade{}.
 
 -type open_option() :: {depth, non_neg_integer()} | {scale, non_neg_integer()} | {chunk_size, non_neg_integer()} |
-                       {date, term()} | {stock, stock()}.
+                       {date, term()} | {stock, stockdb:stock()}.
 
 -type filter() :: candle | average.
--type reader_option() :: {filter, filter()} | {range, timestamp(), timestamp()}.
+-type reader_option() :: {filter, filter()} | {range, stockdb:timestamp(), stockdb:timestamp()}.
 
 
 -type iterator() :: term().

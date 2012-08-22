@@ -7,6 +7,23 @@
 -include("log.hrl").
 -include("stockdb.hrl").
 
+-type stockdb() :: {stockdb_pid, pid()} | term().
+
+-type price() :: float().
+-type volume() :: non_neg_integer().
+-type quote() :: {price(), volume()}.
+-type timestamp() :: non_neg_integer().
+-type stock() :: atom().
+-type date() :: string().
+
+-type market_data() :: #md{}.
+-type trade() :: #trade{}.
+
+
+-export_type([stockdb/0, price/0, volume/0, quote/0, timestamp/0, stock/0, date/0]).
+-export_type([market_data/0, trade/0]).
+
+
 %% Application configuration
 -export([get_value/1, get_value/2]).
 

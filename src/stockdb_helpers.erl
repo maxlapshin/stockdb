@@ -5,7 +5,7 @@
 
 -export([candle/3]).
 
--spec candle(stock(), date(), list(reader_option())) -> {price(),price(),price(),price()}.
+-spec candle(stockdb:stock(), stockdb:date(), list(reader_option())) -> {stockdb:price(),stockdb:price(),stockdb:price(),stockdb:price()}.
 candle(Stock, Date, Options) ->
   {ok, Iterator} = stockdb:init_reader(Stock, Date, [{filter, candle, [{period, 24*3600*1000}]}|Options]),
   % Events1 = stockdb:events(Stock, Date),

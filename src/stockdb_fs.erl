@@ -26,7 +26,7 @@ root() ->
 
 
 %% @doc Return path to DB file for given stock and date
--spec path(stock() | {any(), stock()}, date()) -> file:name().
+-spec path(stockdb:stock() | {any(), stockdb:stock()}, stockdb:date()) -> file:name().
 path(wildcard, Date) ->
   path('*', Date);
 
@@ -43,7 +43,7 @@ path({Type, Stock}, Date) ->
 
 
 %% @doc List of stocks in local database
--spec stocks() -> [stock()].
+-spec stocks() -> [stockdb:stock()].
 stocks() ->
   StockSet = lists:foldl(fun(DbFile, Set) ->
         {db, Stock, _Date} = file_info(DbFile),
@@ -52,13 +52,13 @@ stocks() ->
   lists:sort(sets:to_list(StockSet)).
 
 %% @doc List of stocks in remote database
--spec stocks(Storage::term()) -> [stock()].
+-spec stocks(Storage::term()) -> [stockdb:stock()].
 stocks(_Storage) ->
   [].
 
 
 %% @doc List of available dates for stock
--spec dates(stock()) -> [date()].
+-spec dates(stockdb:stock()) -> [stockdb:date()].
 dates(Stock) ->
   Dates = lists:map(fun(DbFile) ->
         {db, _Stock, Date} = file_info(DbFile),
@@ -67,13 +67,13 @@ dates(Stock) ->
   lists:sort(Dates).
 
 %% @doc List of available dates in remote database
--spec dates(Storage::term(), Stock::stock()) -> [date()].
+-spec dates(Storage::term(), Stock::stockdb:stock()) -> [stockdb:date()].
 dates(_Storage, _Stock) ->
   [].
 
 
 %% @doc List dates when all given stocks have data
--spec common_dates([stock()]) -> [date()].
+-spec common_dates([stockdb:stock()]) -> [stockdb:date()].
 common_dates(Stocks) ->
   StockDates = lists:map(fun dates/1, Stocks),
   [Dates1|OtherDates] = StockDates,
