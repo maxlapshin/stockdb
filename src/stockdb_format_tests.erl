@@ -144,11 +144,6 @@ parse_header_value_test() ->
 
 
 
-disabled_c_test() ->
-  ?debugFmt("!!! Achtung !!!~nC coder/decoder tests temporarily disabled", []),
-  % ?assert(false).
-  ok.
-
 % c_decode_full_md_with_scale_test_disabled() ->
 %   Timestamp = 1343207118230, 
 %   Bid = [{1234, 715}, {1219, 201}, {1197, 1200}],

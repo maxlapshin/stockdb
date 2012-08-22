@@ -232,8 +232,6 @@ read_one_row(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
   ERL_NIF_TERM ask[depth];
   int i;
   
-  int unpacking_delta = 0;
-  
   ERL_NIF_TERM tag = enif_make_atom(env, "error");
   
   if(!bin.size) return make_error(env, "empty");
@@ -298,7 +296,6 @@ read_one_row(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
       bits_read32(&br, (int32_t *)&ask_sizes[i]);
     }
   } else {
-    unpacking_delta = 0;
     tag = enif_make_atom(env, "delta_md");
 
     // fprintf(stderr, "Read delta md %d\r\n", bin.size);
@@ -347,7 +344,6 @@ read_one_row(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
 
     if(argc >= 3) {
       // And this means that we will append delta values to previous row
-      unpacking_delta = 1;
       tag = enif_make_atom(env, "md");
       int arity = 0;
       if(!enif_get_tuple(env, argv[2], &arity, &prev)) return make_error(env, "need_prev");
@@ -451,7 +447,8 @@ static int reload(ErlNifEnv* env, void** priv_data, ERL_NIF_TERM load_info) {
 static ErlNifFunc stockdb_funcs[] =
 {
   {"do_decode_packet", 2, read_one_row},
-  {"do_decode_packet", 4, read_one_row}
+  {"do_decode_packet", 4, read_one_row},
+  {"do_decode_packet", 5, read_one_row}
 };
 
 

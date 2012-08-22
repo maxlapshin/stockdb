@@ -18,7 +18,7 @@
 -export([encode_trade/2, encode_trade/3, decode_trade/1]).
 -export([format_header_value/2, parse_header_value/2]).
 
--export([decode_packet/2, decode_packet/4]).
+-export([decode_packet/2, decode_packet/4, decode_packet/5]).
 -export([get_timestamp/1]).
 
 
@@ -190,6 +190,18 @@ decode_packet(Bin, Depth, PrevMD, Scale) ->
       {error, {Type, Message}}
   end.
 
+%% @doc Main decoding function
+-spec decode_packet(Bin::binary(), Depth::integer(), PrevMD::term(), Scale::integer(), PrevTrade::term()) ->
+  {ok, Packet::term(), Size::integer()} | {error, Reason::term()}.
+decode_packet(Bin, Depth, PrevMD, Scale, PrevTrade) ->
+  try
+    do_decode_packet(Bin, Depth, PrevMD, Scale, PrevTrade)
+  catch
+    Type:Message ->
+      {error, {Type, Message}}
+  end.
+
+
 do_decode_packet(Bin, Depth, PrevMD, Scale) ->
   do_decode_packet_erl(Bin, Depth, PrevMD, Scale).
 
@@ -206,6 +218,9 @@ do_decode_packet_erl(<<1:1, 1:1, _/bitstring>> = Bin, _Depth, _PrevMD, Scale) ->
   {Timestamp, Price, Volume, Size} = decode_trade(Bin),
   {ok, #trade{timestamp = Timestamp, price = Price/Scale, volume = Volume}, Size}.
 
+
+do_decode_packet(_Bin, _Depth, _PrevMD, _Scale, _PrevTrade) ->
+  erlang:error(not_implemented).
 
 %% Utility: scale bid/ask when serializing
 scale(BidAsk, Scale) when is_list(BidAsk) andalso is_integer(Scale) ->
