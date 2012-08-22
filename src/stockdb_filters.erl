@@ -5,7 +5,7 @@
 -include_lib("eunit/include/eunit.hrl").
 
 
--export([candle/2, count/2]).
+-export([candle/2, count/2, drop/2]).
 % -export([average/2]).
 
 -record(candle, {
@@ -171,3 +171,12 @@ count(eof, Count) ->
   {[Count], Count};
 count(_Event, Count) ->
   {[], Count + 1}.
+
+drop(#md{}, md) ->
+  {[], md};
+drop(#trade{}, trade) ->
+  {[], trade};
+drop(eof, What) ->
+  {[], What};
+drop(Other, What) ->
+  {[Other], What}.
