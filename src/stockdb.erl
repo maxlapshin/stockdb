@@ -108,8 +108,12 @@ info(Stock, Date, Fields) ->
 %% @doc Get all events from filtered stock/date
 -spec events(stock(), date(), [term()]) -> list(trade() | market_data()).
 events(Stock, Date, Filters) ->
-  {ok, Iterator} = init_reader(Stock, Date, Filters),
-  events(Iterator).
+  case init_reader(Stock, Date, Filters) of
+    {ok, Iterator} ->
+      events(Iterator);
+    {error, nofile} ->
+      []
+  end.
 
 %% @doc Read all events for stock and date
 -spec events(stock(), date()) -> list(trade() | market_data()).
@@ -132,8 +136,12 @@ events(Iterator) ->
 % FilterFun is function in stockdb_filters
 -spec init_reader(stockdb(), list(reader_option())) -> {ok, iterator()} | {error, Reason::term()}.
 init_reader(#dbstate{} = Stockdb, Filters) ->
-  {ok, Iterator} = stockdb_iterator:init(Stockdb),
-  init_reader(Iterator, Filters);
+  case stockdb_iterator:init(Stockdb) of
+    {ok, Iterator} ->
+      init_reader(Iterator, Filters);
+    {error, _} = Error ->
+      Error
+  end;
 
 init_reader(Iterator, Filters) ->
   {ok, apply_filters(Iterator, Filters)}.
@@ -141,8 +149,12 @@ init_reader(Iterator, Filters) ->
 %% @doc Shortcut for opening iterator on stock-date pair
 -spec init_reader(stock(), date(), list(reader_option())) -> {ok, iterator()} | {error, Reason::term()}.
 init_reader(Stock, Date, Filters) ->
-  {ok, Stockdb} = open_read(Stock, Date),
-  init_reader(Stockdb, Filters).
+  case open_read(Stock, Date) of
+    {ok, Stockdb} ->
+      init_reader(Stockdb, Filters);
+    {error, _} = Error ->
+      Error
+  end.
 
 
 apply_filter(Iterator, false) -> Iterator;
