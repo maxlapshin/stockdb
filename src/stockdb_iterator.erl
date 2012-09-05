@@ -139,6 +139,9 @@ seek_until(UTC, #iterator{} = Iterator) ->
   end.
 
 %% @doc Pop first event from iterator, return {Event|eof, NewIterator}
+read_event(#iterator{position = undefined} = Iterator) ->
+  {eof, Iterator};
+
 read_event(#iterator{dbstate = #dbstate{buffer = FullBuffer} = DBState, position = Pos, last_utc = LastUTC} = Iterator) ->
   <<_:Pos/binary, Buffer/binary>> = FullBuffer,
   {Event, ReadBytes, NewDBState} = case Buffer of
