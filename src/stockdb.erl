@@ -35,7 +35,7 @@
 %% Writing DB
 -export([open_append/3, append/2, close/1]).
 %% Reading existing data
--export([open_read/2, events/1, events/2, events/3]).
+-export([open_read/2, events/1, events/2, events/3, events/4]).
 %% Iterator API
 -export([init_reader/2, init_reader/3, read_event/1]).
 
@@ -104,6 +104,14 @@ info(Stock, Date) ->
 -spec info(stock(), date(), [Key::atom()]) -> [{Key::atom(), Value::term()}].
 info(Stock, Date, Fields) ->
   stockdb_reader:file_info(stockdb_fs:path(Stock, Date), Fields).
+
+
+%% @doc Get all events from filtered stock/date
+-spec events({node, node()}, stock(), date(), [term()]) -> list(trade() | market_data()).
+events({node, Node}, Stock, Date, Filters) ->
+  {ok, Iterator} = rpc:call(Node, stockdb, init_reader, [Stock, Date, Filters]),
+  events(Iterator).
+
 
 %% @doc Get all events from filtered stock/date
 -spec events(stock(), date(), [term()]) -> list(trade() | market_data()).
