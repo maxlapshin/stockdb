@@ -211,8 +211,9 @@ read_trade(ErlNifEnv* env, struct BitReader *br, int scale) {
   uint64_t timestamp;
   if(!bits_get(br, 62, &timestamp)) return make_error(env, "more_data_for_trade_ts");
 
-  uint64_t p;
-  if(!bits_get(br, 32, &p)) return make_error(env, "more_data_for_trade_price");
+  uint64_t raw_p;
+  if(!bits_get(br, 32, &raw_p)) return make_error(env, "more_data_for_trade_price");
+  int32_t p = (int32_t) raw_p & 0xFFFFFFFF; // Cut to 32 bits and consider signed
 
   ERL_NIF_TERM price = scale ? enif_make_double(env, p*1.0 / scale) : enif_make_int(env, p);
 

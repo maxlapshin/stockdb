@@ -121,6 +121,8 @@ trade_negative_test() ->
   ?assertEqual({Timestamp, Price, Volume, byte_size(Bin)}, stockdb_format:decode_trade(<<Bin/binary, Tail/binary>>)),
   ?assertEqual({ok, #trade{timestamp = Timestamp, price = Price, volume = Volume}, byte_size(Bin)},
     stockdb_format:decode_packet(<<Bin/binary, Tail/binary>>, 42)),
+  ?assertEqual({ok, #trade{timestamp = Timestamp, price = Price/100, volume = Volume}, byte_size(Bin)},
+    stockdb_format:decode_packet(<<Bin/binary, Tail/binary>>, 42, anything, 100)),
   % Negative volume must fail to encode
   ?assertException(error, function_clause, stockdb_format:encode_trade(Timestamp, Price, -Volume)).
 
