@@ -8,7 +8,7 @@
 
 
 -export([open/2, append/2, close/1]).
--export([write_events/3, write_events/4]).
+-export([write_events/3]).
 
 
 open(Path, Opts) ->
@@ -26,9 +26,6 @@ close(#dbstate{file = File} = State) ->
   ok.
 
 
-write_events(Stock, Date, Events, Options) ->
-  write_events(stockdb_fs:path(Stock, Date), Events, [{stock, Stock}, {date, stockdb_fs:parse_date(Date)}|Options]).
-  
 write_events(Path, Events, Options) ->
   {ok, S0} = stockdb_appender:open(Path, Options),
   S1 = lists:foldl(fun(Event, State) ->

@@ -95,7 +95,9 @@ write_events(Stock, Date, Events) ->
 
 -spec write_events(stock(), date(), [trade() | market_data()], [open_option()]) -> ok | {error, Reason::term()}.
 write_events(Stock, Date, Events, Options) ->
-  stockdb_appender:write_events(Stock, Date, Events, Options).
+  Path = stockdb_fs:path(Stock, Date),
+  {db, RealStock, RealDate} = stockdb_fs:file_info(Path),
+  stockdb_appender:write_events(Path, Events, [{stock,RealStock},{date,stockdb_fs:parse_date(RealDate)}|Options]).
 
 %% @doc Fetch information from opened stockdb
 -spec info(stockdb()) -> [{Key::atom(), Value::term()}].
