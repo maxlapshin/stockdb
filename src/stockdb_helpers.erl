@@ -2,11 +2,19 @@
 -include("../include/stockdb.hrl").
 -include("stockdb.hrl").
 -include("log.hrl").
+-include_lib("eunit/include/eunit.hrl").
 
 -export([candle/3]).
 
 -spec candle(stockdb:stock(), stockdb:date(), list(reader_option())) -> {stockdb:price(),stockdb:price(),stockdb:price(),stockdb:price()}.
 candle(Stock, Date, Options) ->
+  [{candle,Candle}] = stockdb:info(Stock, Date, [candle]),
+  if Options == [] andalso Candle =/= undefined ->
+    Candle;
+  true -> calculate_candle(Stock, Date, Options)
+  end.
+
+calculate_candle(Stock, Date, Options) ->
   {ok, Iterator} = stockdb:init_reader(Stock, Date, [{filter, candle, [{period, 24*3600*1000}]}|Options]),
   % Events1 = stockdb:events(Stock, Date),
   % Events = [mid(E) || E <- Events1, element(1,E) == trade],

@@ -8,6 +8,7 @@
 
 
 -export([open/2, append/2, close/1]).
+-export([write_events/3, write_events/4]).
 
 
 open(Path, Opts) ->
@@ -23,6 +24,20 @@ close(#dbstate{file = File} = State) ->
   write_candle(State),
   file:close(File),
   ok.
+
+
+write_events(Stock, Date, Events, Options) ->
+  write_events(stockdb_fs:path(Stock, Date), Events, [{stock, Stock}, {date, stockdb_fs:parse_date(Date)}|Options]).
+  
+write_events(Path, Events, Options) ->
+  {ok, S0} = stockdb_appender:open(Path, Options),
+  S1 = lists:foldl(fun(Event, State) ->
+        {ok, NextState} = stockdb_appender:append(Event, State),
+        NextState
+    end, S0, Events),
+  ok = stockdb_appender:close(S1).
+
+
 
 
 %% @doc Here we create skeleton for new DB

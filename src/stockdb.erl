@@ -33,7 +33,7 @@
 -export([info/1, info/2, info/3]).
 
 %% Writing DB
--export([open_append/3, append/2, close/1]).
+-export([open_append/3, append/2, close/1, write_events/3, write_events/4]).
 %% Reading existing data
 -export([open_read/2, events/1, events/2, events/3, events/4]).
 %% Iterator API
@@ -89,6 +89,13 @@ open_append(Stock, Date, Opts) ->
 append(Event, Stockdb) ->
   stockdb_appender:append(Event, Stockdb).
 
+-spec write_events(stock(), date(), [trade() | market_data()]) -> ok | {error, Reason::term()}.
+write_events(Stock, Date, Events) ->
+  write_events(Stock, Date, Events, []).
+
+-spec write_events(stock(), date(), [trade() | market_data()], [open_option()]) -> ok | {error, Reason::term()}.
+write_events(Stock, Date, Events, Options) ->
+  stockdb_appender:write_events(Stock, Date, Events, Options).
 
 %% @doc Fetch information from opened stockdb
 -spec info(stockdb()) -> [{Key::atom(), Value::term()}].
