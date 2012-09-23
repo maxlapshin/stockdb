@@ -281,6 +281,12 @@ parse_header_value(chunk_size, Value) ->
 parse_header_value(version, Value) ->
   erlang:list_to_integer(Value);
 
+parse_header_value(have_candle, "true") ->
+  true;
+
+parse_header_value(have_candle, "false") ->
+  false;
+
 parse_header_value(date, DateStr) ->
   [YS, MS, DS] = string:tokens(DateStr, "/-."),
   { erlang:list_to_integer(YS),

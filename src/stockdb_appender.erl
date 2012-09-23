@@ -19,12 +19,21 @@ open(Path, Opts) ->
   end.
 
 
-close(#dbstate{file = File}) ->
+close(#dbstate{file = File} = State) ->
+  write_candle(State),
   file:close(File),
   ok.
 
 
-%% Here we create skeleton for new DB
+%% @doc Here we create skeleton for new DB
+%% Structure of file is following:
+%% #!/usr/bin/env stockdb
+%% header: value
+%% header: value
+%% header: value
+%%
+%% chunkmap of fixed size
+%% rows
 create_new_db(Path, Opts) ->
   filelib:ensure_dir(Path),
   {ok, File} = file:open(Path, [binary,write,exclusive,raw]),
@@ -40,16 +49,19 @@ create_new_db(Path, Opts) ->
     date = Date,
     sync = not lists:member(nosync, Opts),
     path = Path,
+    have_candle = true,
     depth = proplists:get_value(depth, Opts, 1),
     scale = proplists:get_value(scale, Opts, 100),
     chunk_size = proplists:get_value(chunk_size, Opts, 5*60)
   },
 
-  {ok, ChunkMapOffset} = write_header(File, State),
+  {ok, CandleOffset} = write_header(File, State),
+  {ok, ChunkMapOffset} = write_candle(File, State),
   {ok, _CMSize} = write_chunk_map(File, State),
 
   {ok, State#dbstate{
       file = File,
+      candle_offset = CandleOffset,
       chunk_map_offset = ChunkMapOffset
     }}.
 
@@ -90,8 +102,9 @@ append_first_event(Event, State) when is_record(Event, trade) ->
   append_trade(Event, State#dbstate{last_md = undefined}).
 
 
-write_header(File, #dbstate{chunk_size = CS, date = Date, depth = Depth, scale = Scale, stock = Stock, version = Version}) ->
-  StockDBOpts = [{chunk_size,CS},{date,Date},{depth,Depth},{scale,Scale},{stock,Stock},{version,Version}],
+write_header(File, #dbstate{chunk_size = CS, date = Date, depth = Depth, scale = Scale, stock = Stock, version = Version,
+  have_candle = HaveCandle}) ->
+  StockDBOpts = [{chunk_size,CS},{date,Date},{depth,Depth},{scale,Scale},{stock,Stock},{version,Version},{have_candle,HaveCandle}],
   {ok, 0} = file:position(File, 0),
   ok = file:write(File, <<"#!/usr/bin/env stockdb\n">>),
   lists:foreach(fun({Key, Value}) ->
@@ -101,6 +114,9 @@ write_header(File, #dbstate{chunk_size = CS, date = Date, depth = Depth, scale =
   file:position(File, cur).
 
 
+write_candle(File, #dbstate{}) ->
+  file:write(File, <<0:32, 0:32, 0:32, 0:32>>),
+  file:position(File, cur).
 
 write_chunk_map(File, #dbstate{chunk_size = ChunkSize}) ->
   ChunkCount = ?NUMBER_OF_CHUNKS(ChunkSize),
@@ -116,11 +132,8 @@ write_chunk_map(File, #dbstate{chunk_size = ChunkSize}) ->
 start_chunk(Timestamp, Offset, #dbstate{daystart = undefined, date = Date} = State) ->
   start_chunk(Timestamp, Offset, State#dbstate{daystart = daystart(Date)});
 
-start_chunk(Timestamp, Offset, State) ->
-  #dbstate{
-    daystart = Daystart,
-    chunk_size = ChunkSize,
-    chunk_map = ChunkMap} = State,
+start_chunk(Timestamp, Offset, #dbstate{daystart = Daystart, chunk_size = ChunkSize,
+    chunk_map = ChunkMap} = State) ->
 
   ChunkSizeMs = timer:seconds(ChunkSize),
   ChunkNumber = (Timestamp - Daystart) div ChunkSizeMs,
@@ -138,7 +151,14 @@ start_chunk(Timestamp, Offset, State) ->
   State1 = State#dbstate{
     chunk_map = ChunkMap ++ [Chunk],
     next_chunk_time = NextChunkTime},
+  write_candle(State1),
   {ok, State1}.
+
+
+write_candle(#dbstate{have_candle = false}) ->  ok;
+write_candle(#dbstate{candle = undefined}) -> ok;
+write_candle(#dbstate{have_candle = true, candle_offset = CandleOffset, candle = {O,H,L,C}, file = File}) ->
+  ok = file:pwrite(File, CandleOffset, <<1:1, O:31, H:32, L:32, C:32>>).
 
 
 
@@ -170,11 +190,11 @@ append_delta_md(#md{timestamp = Timestamp} = MD, #dbstate{depth = Depth, file = 
       last_md = DepthSetMD}
   }.
 
-append_trade(#trade{timestamp = Timestamp} = Trade, #dbstate{file = File, scale = Scale} = State) ->
+append_trade(#trade{timestamp = Timestamp, price = Price} = Trade, #dbstate{file = File, scale = Scale, candle = Candle} = State) ->
   Data = stockdb_format:encode_trade(Trade, Scale),
   {ok, _EOF} = file:position(File, eof),
   ok = file:write(File, Data),
-  {ok, State#dbstate{last_timestamp = Timestamp}}.
+  {ok, State#dbstate{last_timestamp = Timestamp, candle = candle(Candle, round(Price*Scale))}}.
 
 
 setdepth(#md{bid = Bid, ask = Ask} = MD, Depth) ->
@@ -193,4 +213,12 @@ setdepth([Q|Quotes], Depth) ->
 daystart(Date) ->
   DaystartSeconds = calendar:datetime_to_gregorian_seconds({Date, {0,0,0}}) - calendar:datetime_to_gregorian_seconds({{1970,1,1}, {0,0,0}}),
   DaystartSeconds * 1000.
+
+
+candle(undefined, Price) -> {Price, Price, Price, Price};
+candle({O,H,L,_C}, Price) when Price > H -> {O,Price,L,Price};
+candle({O,H,L,_C}, Price) when Price < L -> {O,H,Price,Price};
+candle({O,H,L,_C}, Price) -> {O,H,L,Price}.
+
+
 

@@ -18,6 +18,9 @@
     next_chunk_time = 0,
     chunk_map_offset,
     chunk_map = [],
+    have_candle = false :: boolean(),
+    candle_offset,
+    candle = undefined,
     daystart
   }).
 
@@ -31,6 +34,7 @@
     {date, utcdate()},
     {depth, 10},
     {scale, 100},
+    {have_candle, true},
     {chunk_size, 300} % seconds
   ]).
 
