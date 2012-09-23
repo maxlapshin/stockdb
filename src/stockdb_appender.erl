@@ -49,7 +49,7 @@ create_new_db(Path, Opts) ->
     date = Date,
     sync = not lists:member(nosync, Opts),
     path = Path,
-    have_candle = false,
+    have_candle = proplists:get_value(have_candle, Opts, true),
     depth = proplists:get_value(depth, Opts, 1),
     scale = proplists:get_value(scale, Opts, 100),
     chunk_size = proplists:get_value(chunk_size, Opts, 5*60)
