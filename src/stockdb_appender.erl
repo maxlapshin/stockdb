@@ -49,13 +49,17 @@ create_new_db(Path, Opts) ->
     date = Date,
     sync = not lists:member(nosync, Opts),
     path = Path,
-    have_candle = true,
+    have_candle = false,
     depth = proplists:get_value(depth, Opts, 1),
     scale = proplists:get_value(scale, Opts, 100),
     chunk_size = proplists:get_value(chunk_size, Opts, 5*60)
   },
 
-  {ok, CandleOffset} = write_header(File, State),
+  {ok, CandleOffset0} = write_header(File, State),
+  CandleOffset = case State#dbstate.have_candle of
+    true -> CandleOffset0;
+    false -> undefined
+  end,
   {ok, ChunkMapOffset} = write_candle(File, State),
   {ok, _CMSize} = write_chunk_map(File, State),
 
@@ -107,15 +111,21 @@ write_header(File, #dbstate{chunk_size = CS, date = Date, depth = Depth, scale =
   StockDBOpts = [{chunk_size,CS},{date,Date},{depth,Depth},{scale,Scale},{stock,Stock},{version,Version},{have_candle,HaveCandle}],
   {ok, 0} = file:position(File, 0),
   ok = file:write(File, <<"#!/usr/bin/env stockdb\n">>),
-  lists:foreach(fun({Key, Value}) ->
-        ok = file:write(File, [io_lib:print(Key), ": ", stockdb_format:format_header_value(Key, Value), "\n"])
+  lists:foreach(fun
+    ({have_candle,false}) ->
+      ok;
+    ({Key, Value}) ->
+      ok = file:write(File, [io_lib:print(Key), ": ", stockdb_format:format_header_value(Key, Value), "\n"])
     end, StockDBOpts),
   ok = file:write(File, "\n"),
   file:position(File, cur).
 
 
-write_candle(File, #dbstate{}) ->
+write_candle(File, #dbstate{have_candle = true}) ->
   file:write(File, <<0:32, 0:32, 0:32, 0:32>>),
+  file:position(File, cur);
+
+write_candle(File, #dbstate{have_candle = false}) ->
   file:position(File, cur).
 
 write_chunk_map(File, #dbstate{chunk_size = ChunkSize}) ->
@@ -190,11 +200,16 @@ append_delta_md(#md{timestamp = Timestamp} = MD, #dbstate{depth = Depth, file = 
       last_md = DepthSetMD}
   }.
 
-append_trade(#trade{timestamp = Timestamp, price = Price} = Trade, #dbstate{file = File, scale = Scale, candle = Candle} = State) ->
+append_trade(#trade{timestamp = Timestamp, price = Price} = Trade, 
+  #dbstate{file = File, scale = Scale, candle = Candle, have_candle = HaveCandle} = State) ->
   Data = stockdb_format:encode_trade(Trade, Scale),
   {ok, _EOF} = file:position(File, eof),
   ok = file:write(File, Data),
-  {ok, State#dbstate{last_timestamp = Timestamp, candle = candle(Candle, round(Price*Scale))}}.
+  Candle1 = case HaveCandle of
+    true -> candle(Candle, round(Price*Scale));
+    false -> Candle
+  end,
+  {ok, State#dbstate{last_timestamp = Timestamp, candle = Candle1}}.
 
 
 setdepth(#md{bid = Bid, ask = Ask} = MD, Depth) ->

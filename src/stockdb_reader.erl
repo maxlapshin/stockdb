@@ -115,7 +115,7 @@ get_file_info(FileName, Fields) ->
   {ok, 0} = file:position(File, bof),
 
   {ok, SavedDBOpts, AfterHeaderOffset} = read_header(File),
-  {ChunkMapOffset,CandleOffset} = case proplists:get_value(have_candle,SavedDBOpts) of
+  {ChunkMapOffset,CandleOffset} = case proplists:get_value(have_candle,SavedDBOpts,false) of
     true -> {AfterHeaderOffset + 4*4, AfterHeaderOffset};
     false -> {AfterHeaderOffset, undefined}
   end,
