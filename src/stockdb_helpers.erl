@@ -11,7 +11,11 @@ candle(Stock, Date, Options) ->
   [{candle,Candle}] = stockdb:info(Stock, Date, [candle]),
   if Options == [] andalso Candle =/= undefined ->
     Candle;
-  true -> calculate_candle(Stock, Date, Options)
+    true -> try calculate_candle(Stock, Date, Options) of
+      Result -> Result
+    catch
+      Class:Error -> erlang:raise(Class, {Error, candle, Stock, Date}, erlang:get_stacktrace())
+    end
   end.
 
 calculate_candle(Stock, Date, Options) ->
