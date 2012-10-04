@@ -1,2 +1,3 @@
 test/temp
 .eunit/
+.stockdb_dialyzer.plt
