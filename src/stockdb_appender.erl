@@ -111,8 +111,7 @@ valid_bidask(_) -> false.
 append(_Event, #dbstate{mode = Mode}) when Mode =/= append ->
   {error, reopen_in_append_mode};
 
-append(Event, #dbstate{next_chunk_time = NCT, file = File, last_md = LastMD, sync = Sync} = State)
-when is_record(Event, md) orelse is_record(Event, trade) ->
+append(Event, #dbstate{next_chunk_time = NCT, file = File, last_md = LastMD, sync = Sync} = State) ->
   {Type, Timestamp} = validate_event(Event),
   if
     (Timestamp >= NCT orelse NCT == undefined) ->
