@@ -86,15 +86,34 @@ open_existing_db(Path, _Opts) ->
   stockdb_reader:open_existing_db(Path, [binary,write,read,raw]).
 
 
-event_timestamp(#md{timestamp = TS}) -> TS;
-event_timestamp(#trade{timestamp = TS}) -> TS.
+% Validate event and return {Type, Timestamp} if valid
+validate_event(#md{timestamp = TS, bid = Bid, ask = Ask} = Event) ->
+  valid_bidask(Bid) orelse erlang:throw({?MODULE, bad_bid, Event}),
+  valid_bidask(Ask) orelse erlang:throw({?MODULE, bad_ask, Event}),
+  is_integer(TS) andalso TS > 0 orelse erlang:throw({?MODULE, bad_timestamp, Event}),
+  {md, TS};
+
+validate_event(#trade{timestamp = TS, price = P, volume = V} = Event) ->
+  is_number(P) orelse erlang:throw({?MODULE, bad_price, Event}),
+  is_integer(V) andalso V >= 0 orelse erlang:throw({?MODULE, bad_volume, Event}),
+  is_integer(TS) andalso TS > 0 orelse erlang:throw({?MODULE, bad_timestamp, Event}),
+  {trade, TS};
+
+validate_event(Event) ->
+  erlang:throw({?MODULE, invalid_event, Event}).
+
+
+valid_bidask([{P,V}|_]) when is_number(P) andalso is_integer(V) andalso V >= 0 ->
+  true;
+valid_bidask(_) -> false.
+
 
 append(_Event, #dbstate{mode = Mode}) when Mode =/= append ->
   {error, reopen_in_append_mode};
 
 append(Event, #dbstate{next_chunk_time = NCT, file = File, last_md = LastMD, sync = Sync} = State)
 when is_record(Event, md) orelse is_record(Event, trade) ->
-  Timestamp = event_timestamp(Event),
+  {Type, Timestamp} = validate_event(Event),
   if
     (Timestamp >= NCT orelse NCT == undefined) ->
       {ok, EOF} = file:position(File, eof),
@@ -103,11 +122,11 @@ when is_record(Event, md) orelse is_record(Event, trade) ->
       {ok, State1_} = start_chunk(Timestamp, EOF, State_),
       if Sync -> file:sync(File); true -> ok end,
       {ok, State1_};
-    LastMD == undefined andalso is_record(Event, md) ->
+    LastMD == undefined andalso Type == md ->
       append_full_md(Event, State);
-    is_record(Event, md) ->
+    Type == md ->
       append_delta_md(Event, State);
-    is_record(Event, trade) ->
+    Type == trade ->
       append_trade(Event, State)
   end.
 
