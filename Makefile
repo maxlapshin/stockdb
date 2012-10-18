@@ -10,8 +10,9 @@ clean:
 	@rm -f erl_crash.dump
 
 test:
-	@./rebar compile eunit
+	@./rebar eunit
 
+.PHONY: test
 
 PLT_NAME=.stockdb_dialyzer.plt
 
