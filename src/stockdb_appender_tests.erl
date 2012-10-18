@@ -118,3 +118,24 @@ write_append_test() ->
   ok = file:delete(File).
 
 
+append_verifier_test() ->
+  File = tempfile("append-verifier-test.temp"),
+  ok = filelib:ensure_dir(File),
+  file:delete(File),
+
+  {ok, S0} = stockdb_appender:open(File, [{stock, 'TEST'}, {date, {2012,7,25}}, {depth, 3}, {scale, 200}, {chunk_size, 300}]),
+
+  ?assertThrow({_, bad_timestamp, _}, stockdb_appender:append({trade, undefined, 2.34, 29}, S0)),
+  ?assertThrow({_, bad_price, _}, stockdb_appender:append({trade, 1350575093098, undefined, 29}, S0)),
+  ?assertThrow({_, bad_volume, _}, stockdb_appender:append({trade, 1350575093098, 2.34, -29}, S0)),
+
+  ?assertThrow({_, bad_timestamp, _}, stockdb_appender:append({md, undefined, [{2.34, 29}], [{2.35, 31}]}, S0)),
+  ?assertThrow({_, bad_bid, _}, stockdb_appender:append({md, 1350575093098, [], [{2.35, 31}]}, S0)),
+  ?assertThrow({_, bad_bid, _}, stockdb_appender:append({md, 1350575093098, undefined, [{2.35, 31}]}, S0)),
+  ?assertThrow({_, bad_ask, _}, stockdb_appender:append({md, 1350575093098, [{2.34, 29}], [{2.35, -31}]}, S0)),
+  ?assertThrow({_, bad_ask, _}, stockdb_appender:append({md, 1350575093098, [{2.34, 29}], [{[], 31}]}, S0)),
+
+  ?assertThrow({_, invalid_event, _}, stockdb_appender:append({other, 1350575093098, [{2.34, 29}], [{12, 31}]}, S0)),
+
+  ok = stockdb_appender:close(S0),
+  ok = file:delete(File).
