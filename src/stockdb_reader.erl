@@ -33,7 +33,12 @@ open_for_migrate(Path) ->
   {ok, State2#dbstate{file = undefined}}.
 
 open_existing_db(Path, Modes) ->
-  {ok, File} = file:open(Path, Modes -- [migrate]),
+  {ok, File} = try
+    emmap:open(Path, [read, shared, nolock])
+  catch
+    error:undef ->
+      file:open(Path, Modes -- [migrate])
+  end,
   {ok, 0} = file:position(File, bof),
 
   {ok, SavedDBOpts, AfterHeaderOffset} = read_header(File),
