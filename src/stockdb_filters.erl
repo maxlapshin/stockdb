@@ -71,7 +71,7 @@ start_segment(Segment, Packet, Candle) ->
   candle_accumulate(Packet, Opened).
 
 flush_segment(#candle{open = Open, high = High, low = Low, close = Close} = Candle) ->
-  Events = lists:usort([Open, High, Low, Close]),
+  Events = lists:sort([Open, High, Low, Close]),
   {Events -- [undefined], Candle#candle{
       open = undefined,
       high = undefined,
