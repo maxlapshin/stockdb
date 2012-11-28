@@ -33,10 +33,15 @@ open_for_migrate(Path) ->
   {ok, State2#dbstate{file = undefined}}.
 
 open_existing_db(Path, Modes) ->
-  {ok, File} = try
-    emmap:open(Path, [read, shared, nolock])
+  {ok, File} = try 
+    case lists:member(write, Modes) of
+      % Try accelerated read with emmap
+      false -> emmap:open(Path, [read, shared, nolock]);
+      true -> file:open(Path, Modes -- [migrate])
+    end
   catch
     error:undef ->
+      % Fallback to file module
       file:open(Path, Modes -- [migrate])
   end,
   {ok, 0} = file:position(File, bof),
