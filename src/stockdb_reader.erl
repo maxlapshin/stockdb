@@ -36,7 +36,7 @@ open_existing_db(Path, Modes) ->
   {ok, File} = try 
     case lists:member(write, Modes) of
       % Try accelerated read with emmap
-      false -> emmap:open(Path, [read, shared, nolock]);
+      false -> emmap:open(Path, [read, shared, direct, nolock]);
       true -> file:open(Path, Modes -- [migrate])
     end
   catch
