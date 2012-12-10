@@ -91,6 +91,7 @@ encode_delta_md(TimeDelta, DBid, DAsk) when is_integer(TimeDelta) andalso is_lis
 %% @doc Accept new md, previous md, scale for high-level encoding
 encode_delta_md(#md{} = MD, #md{} = PrevMD, Scale) ->
   #md{timestamp = TimeDelta, bid = DBid, ask = DAsk} = compute_delta(PrevMD, MD),
+  TimeDelta >= 0 orelse erlang:error({time_delta_negative,MD#md.timestamp,PrevMD#md.timestamp}),
   encode_delta_md(TimeDelta, [scale(DBid, Scale), scale(DAsk, Scale)]).
 
 %% Utility: append bit to bitmask and (if not zero) value to data accumulator

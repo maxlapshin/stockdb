@@ -20,8 +20,8 @@ Writing database: Appender
 
 Typical workflow when appending data to DB:
 
-    {ok, Appender} = stockdb:open_appender('NASDAQ.AAPL', "2012-01-15", [{depth, 2}]),
-    {ok, Appender1} = stockdb:append({md, 1326601810453, [{450.1,100},{449.56,1000}], [{452.43,20},{454.15,40}]}),
+    {ok, Appender} = stockdb:open_append('NASDAQ.AAPL', "2012-01-15", [{depth, 2}]),
+    {ok, Appender1} = stockdb:append({md, 1326601810453, [{450.1,100},{449.56,1000}], [{452.43,20},{454.15,40}]}, Appender),
     stockdb:close(Appender1).
 
 
