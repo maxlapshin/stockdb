@@ -67,12 +67,16 @@ when is_number(Period) andalso is_record(Packet, md) orelse is_record(Packet, tr
   end.
 
 start_segment(Segment, Packet, Candle) ->
-  Opened = Candle#candle{current_segment = Segment, open = Packet},
+  Opened = Candle#candle{current_segment = Segment, open = Packet, high = Packet, low = Packet, close = Packet},
   candle_accumulate(Packet, Opened).
 
 flush_segment(#candle{open = Open, high = High, low = Low, close = Close} = Candle) ->
   Events = lists:sort([Open, High, Low, Close]),
-  {Events -- [undefined], Candle#candle{
+  RealEvents = case Events of
+    [undefined|_] -> []; % Tells us we have no events
+    _ -> Events
+  end,
+  {RealEvents, Candle#candle{
       open = undefined,
       high = undefined,
       low = undefined,
