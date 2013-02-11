@@ -121,6 +121,7 @@ test_candle(Input, State0) ->
         {MD, N+1}
     end, 1, Input),
   Events = run_filter(fun candle/2, State0, MDList, []),
+  ?assertNot(lists:member(undefined, Events)),
   [{Bid,Ask} || #md{bid = [{Bid,_}], ask = [{Ask,_}]} <- Events].
 
 test_trade_candle(Input) ->
@@ -128,11 +129,9 @@ test_trade_candle(Input) ->
         {#trade{timestamp = N, price = Price, volume = 1}, N+1}
     end, 1, Input),
   Events = run_filter(fun candle/2, [{type, trade}], TradeList, []),
+  ?assertNot(lists:member(undefined, Events)),
   [Price || #trade{price = Price} <- Events].
 
-
-run_filter(Fun, List) ->
-  run_filter(Fun, undefined, List, []).
 
 run_filter(Fun, State, [Event|List], Acc) ->
   {Events, State1} = Fun(Event, State),
@@ -175,6 +174,8 @@ candle_pass_foreign_test() ->
   ok.
 
 candle_no_undefined_test() ->
+  % Test candle does not return anything on empty data
+  ?assertEqual([], test_candle([])),
   % Test candle on poor periods
   ?assertEqual([{1,5}, {1,5}, {1,5}, {1,5}], test_candle([{1,5}])),
   ?assertEqual([{1,5}, {1,5}, {1,5}, {2,4}], test_candle([{1,5}, {2,4}])), % Second event does not compare more or less than first
