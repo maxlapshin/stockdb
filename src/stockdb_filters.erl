@@ -140,13 +140,14 @@ run_filter(Fun, State, [], Acc) ->
   Acc ++ Events.
 
 candle_test() ->
+  % Now (after 6d015e7) candle always returns 4 events -- Open may be high, low or even close, etc.
   ?assertEqual([{1,5}, {0,4}, {10,14}, {8,12}], test_candle([{1,5},{2,8},{3,4},{0,4},{5,11},{10,14},{1,9},{8,12}])),
-  ?assertEqual([{1,5}, {0,4}, {8,12}], test_candle([{1,5},{2,8},{3,4},{0,4},{5,11},{8,12}])),
-  ?assertEqual([{1,5}, {8,12}], test_candle([{1,5},{2,8},{3,4},{5,11},{8,12}])),
+  ?assertEqual([{1,5}, {0,4}, {8,12}, {8,12}], test_candle([{1,5},{2,8},{3,4},{0,4},{5,11},{8,12}])),
+  ?assertEqual([{1,5}, {1,5}, {8,12}, {8,12}], test_candle([{1,5},{2,8},{3,4},{5,11},{8,12}])),
   
   ?assertEqual([1, 0, 10, 8], test_trade_candle([1,2,3,0,5,10,1,8])),
-  ?assertEqual([1, 0, 8], test_trade_candle([1,2,3,0,5,8])),
-  ?assertEqual([1, 8], test_trade_candle([1,2,3,1,5,8])),
+  ?assertEqual([1, 0, 8, 8], test_trade_candle([1,2,3,0,5,8])),
+  ?assertEqual([1, 1, 8, 8], test_trade_candle([1,2,3,1,5,8])),
 
   N = 100000,
   List = [begin
