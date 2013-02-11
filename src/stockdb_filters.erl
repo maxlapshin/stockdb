@@ -113,11 +113,14 @@ timestamp(#trade{timestamp = Timestamp}) -> Timestamp.
 
 
 test_candle(Input) ->
+  test_candle(Input, undefined).
+
+test_candle(Input, State0) ->
   {MDList, _} = lists:mapfoldl(fun({Bid, Ask}, N) ->
         MD = #md{timestamp = N, bid = [{Bid,0}], ask = [{Ask,0}]},
         {MD, N+1}
     end, 1, Input),
-  Events = run_filter(fun candle/2, MDList),
+  Events = run_filter(fun candle/2, State0, MDList, []),
   [{Bid,Ask} || #md{bid = [{Bid,_}], ask = [{Ask,_}]} <- Events].
 
 test_trade_candle(Input) ->
@@ -169,6 +172,21 @@ candle_test() ->
 candle_pass_foreign_test() ->
   ?assertMatch({[#trade{}], #candle{}}, candle(#trade{}, [{type, md}])),
   ?assertMatch({[#md{}], #candle{}}, candle(#md{}, [{type, trade}])),
+  ok.
+
+candle_no_undefined_test() ->
+  % Test candle on poor periods
+  ?assertEqual([{1,5}, {1,5}, {1,5}, {1,5}], test_candle([{1,5}])),
+  ?assertEqual([{1,5}, {1,5}, {1,5}, {2,4}], test_candle([{1,5}, {2,4}])), % Second event does not compare more or less than first
+  ?assertEqual([{1,5}, {1,5}, {2,6}, {2,6}], test_candle([{1,5}, {2,6}])), % Close = High
+  ?assertEqual([{2,5}, {2,5}, {1,4}, {3,4}], test_candle([{2,5}, {1,4}, {3,4}])), % Take Low
+
+  ?assertEqual([ % Make two periods, each has one event
+      {1,5}, {1,5}, {1,5}, {1,5}, % First period is only one event (timestamps start with 1)
+      {2,8}, {2,8}, {2,8}, {2,8}], test_candle([{1,5},{2,8}], [{period, 2}])),
+  ?assertEqual([ % Same, but second period has 2 events
+      {1,5}, {1,5}, {1,5}, {1,5}, % First period is only one event (timestamps start with 1)
+      {2,8}, {2,8}, {1,7}, {1,7}], test_candle([{1,5},{2,8},{1,7}], [{period, 2}])),
   ok.
 
 
