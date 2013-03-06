@@ -5,6 +5,7 @@
 -include_lib("eunit/include/eunit.hrl").
 
 -export([candle/3]).
+-export([timestamp/1]).
 
 -spec candle(stockdb:stock(), stockdb:date(), list(reader_option())) -> {stockdb:price(),stockdb:price(),stockdb:price(),stockdb:price()}.
 candle(Stock, Date, Options) ->
@@ -32,3 +33,16 @@ calculate_candle(Stock, Date, Options) ->
 
 mid(#trade{price = Price}) -> Price;
 mid(#md{bid = [{Bid,_}|_], ask = [{Ask,_}|_]}) -> (Bid + Ask) / 2.
+
+
+% Convert given {Date, Time} or {Megasec, Sec, Microsec} to millisecond timestamp
+timestamp({{_Y,_Mon,_D} = Day,{H,Min,S}}) ->
+  timestamp({Day, {H,Min,S, 0}});
+
+timestamp({{_Y,_Mon,_D} = Day,{H,Min,S, Milli}}) ->
+  GregSeconds_Zero = calendar:datetime_to_gregorian_seconds({{1970,1,1}, {0,0,0}}),
+  GregSeconds_Now = calendar:datetime_to_gregorian_seconds({Day,{H,Min,S}}),
+  (GregSeconds_Now - GregSeconds_Zero)*1000 + Milli;
+
+timestamp({Megaseconds, Seconds, Microseconds}) ->
+  (Megaseconds*1000000 + Seconds)*1000 + Microseconds div 1000.

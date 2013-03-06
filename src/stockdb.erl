@@ -16,6 +16,10 @@
 -type stock() :: atom().
 -type date() :: string().
 
+-type datetime_ms() :: {calendar:date(), time_ms()}.
+-type time_ms() :: {calendar:hour(), calendar:minute(), calendar:second(), millisecond()}.
+-type millisecond() :: 0..999.
+
 -type market_data() :: #md{}.
 -type trade() :: #trade{}.
 
@@ -40,7 +44,7 @@
 -export([init_reader/2, init_reader/3, read_event/1]).
 
 %% Shortcut helpers
--export([candle/2, candle/3]).
+-export([timestamp/1, candle/2, candle/3]).
 
 %% Run tests
 -export([run_tests/0]).
@@ -211,6 +215,11 @@ candle(Stock, Date) ->
 -spec candle(stock(), date(), list(reader_option())) -> {price(),price(),price(),price()}.
 candle(Stock, Date, Options) ->
   stockdb_helpers:candle(Stock, Date, Options).
+
+% convert datetime or now() to millisecond timestamp
+-spec timestamp(calendar:datetime()|datetime_ms()|erlang:timestamp()) -> timestamp().
+timestamp(DateTime) ->
+  stockdb_helpers:timestamp(DateTime).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %       Configuration
