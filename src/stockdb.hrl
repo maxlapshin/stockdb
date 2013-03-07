@@ -48,7 +48,7 @@
 	((fun (__X) ->
 	    case abs(Expr - Expect) of
 		__Y when __Y < Eps -> ok;
-		__V -> .erlang:error({assertEqualEps_failed,
+		__V -> erlang:error({assertEqualEps_failed,
 				      [{module, ?MODULE},
 				       {line, ?LINE},
 				       {expression, (??Expr)},
