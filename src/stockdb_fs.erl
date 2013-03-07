@@ -2,7 +2,7 @@
 %%% This module handles DB file structure
 
 -module(stockdb_fs).
--author({"Danil Zagoskin", z@gosk.in}).
+-author({"Danil Zagoskin", 'z@gosk.in'}).
 
 -include("../include/stockdb.hrl").
 

@@ -2,7 +2,7 @@
 %%% Read-only API
 
 -module(stockdb_reader).
--author({"Danil Zagoskin", z@gosk.in}).
+-author({"Danil Zagoskin", 'z@gosk.in'}).
 
 -include("log.hrl").
 -include_lib("eunit/include/eunit.hrl").

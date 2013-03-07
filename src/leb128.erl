@@ -2,7 +2,7 @@
 %%% Only unsigned integers re supported ATM
 
 -module(leb128).
--author({"Danil Zagoskin", z@gosk.in}).
+-author({"Danil Zagoskin", 'z@gosk.in'}).
 
 -export([encode/1, decode/1]).
 -export([encode_signed/1, decode_signed/1]).

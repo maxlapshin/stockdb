@@ -1,6 +1,6 @@
 %%% @doc Binary row format for stockdb
 -module(stockdb_format_v1).
--author({"Danil Zagoskin", z@gosk.in}).
+-author({"Danil Zagoskin", 'z@gosk.in'}).
 
 -include("stockdb.hrl").
 

@@ -2,7 +2,7 @@
 %%% Designed for continious writing of stock data
 %%% with later fast read and fast seek
 -module(stockdb).
--author({"Danil Zagoskin", z@gosk.in}).
+-author({"Danil Zagoskin", 'z@gosk.in'}).
 -include("../include/stockdb.hrl").
 -include("log.hrl").
 -include("stockdb.hrl").

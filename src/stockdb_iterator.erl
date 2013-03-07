@@ -2,7 +2,7 @@
 %%% It accepts stockdb state and operates only with its buffer
 
 -module(stockdb_iterator).
--author({"Danil Zagoskin", z@gosk.in}).
+-author({"Danil Zagoskin", 'z@gosk.in'}).
 
 -include("log.hrl").
 -include_lib("eunit/include/eunit.hrl").

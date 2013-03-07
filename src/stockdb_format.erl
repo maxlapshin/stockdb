@@ -6,7 +6,7 @@
 %%% byte-aligning LEB128 parts
 
 -module(stockdb_format).
--author({"Danil Zagoskin", z@gosk.in}).
+-author({"Danil Zagoskin", 'z@gosk.in'}).
 
 -include_lib("eunit/include/eunit.hrl").
 -include("../include/stockdb.hrl").
