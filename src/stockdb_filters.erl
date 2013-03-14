@@ -5,7 +5,7 @@
 -include_lib("eunit/include/eunit.hrl").
 
 
--export([candle/2, count/2, drop/2]).
+-export([candle/2, count/2, drop/2, last/2]).
 % -export([average/2]).
 
 -record(candle, {
@@ -204,3 +204,13 @@ drop(eof, What) ->
   {[], What};
 drop(Other, What) ->
   {[Other], What}.
+
+
+last(Event, Type) when is_atom(Type) ->
+  last(Event, {Type, undefined});
+last(eof, {Type, Event}) ->
+  {[Event], Type};
+last({Type, _, _, _} = Event, {Type, _}) ->
+  {[], {Type, Event}};
+last(_, State) ->
+  {[], State}.
