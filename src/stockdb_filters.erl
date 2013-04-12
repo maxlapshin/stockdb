@@ -11,6 +11,7 @@
 -record(candle, {
     type = md,
     period = 30000,
+    ref_time = undefined,
     current_segment,
     open,
     high,
@@ -23,7 +24,9 @@ parse_options([], #candle{} = Candle) ->
 parse_options([{period, Period}|MoreOpts], #candle{} = Candle) ->
   parse_options(MoreOpts, Candle#candle{period = Period});
 parse_options([{type, Type}|MoreOpts], #candle{} = Candle) ->
-  parse_options(MoreOpts, Candle#candle{type = Type}).
+  parse_options(MoreOpts, Candle#candle{type = Type});
+parse_options([{ref_time, RefTime}|MoreOpts], #candle{} = Candle) when RefTime == start; RefTime == finish ->
+  parse_options(MoreOpts, Candle#candle{ref_time = RefTime}).
 
 
 candle(Event, undefined) ->
@@ -70,17 +73,34 @@ start_segment(Segment, Packet, Candle) ->
   Opened = Candle#candle{current_segment = Segment, open = Packet, high = Packet, low = Packet, close = Packet},
   candle_accumulate(Packet, Opened).
 
-flush_segment(#candle{open = Open, high = High, low = Low, close = Close} = Candle) ->
-  Events = lists:sort([Open, High, Low, Close]),
-  RealEvents = case Events of
-    [undefined|_] -> []; % Tells us we have no events
-    _ -> Events
+% Flush segment if data is collected
+flush_segment(#candle{open = undefined} = Candle) ->
+  % Segment is not opened, so do nothing
+  {[], Candle};
+
+flush_segment(#candle{ref_time = RefTime, current_segment = Segment, period = Period,
+    open = Open, high = High, low = Low, close = Close} = Candle)
+when RefTime == start; RefTime == finish ->
+  % User has requested specific reference time, so we return 5-tuple of {Time, Open, High, Low, Close}
+  Timestamp = case RefTime of
+    start -> Segment * Period;
+    finish -> (Segment+1) * Period
   end,
-  {RealEvents, Candle#candle{
-      open = undefined,
-      high = undefined,
-      low = undefined,
-      close = undefined}
+  OHLC = {Timestamp, value(open, Open), value(high, High), value(low, Low), value(close, Close)},
+  {[OHLC], empty(Candle)};
+
+flush_segment(#candle{open = Open, high = High, low = Low, close = Close} = Candle) ->
+  % By default, return every event as is
+  Events = lists:sort([Open, High, Low, Close]), % UTC field is just after (common) type, so events are sorted chronologically
+  {Events, empty(Candle)}.
+
+
+empty(#candle{} = Candle) ->
+  Candle#candle{
+    open = undefined,
+    high = undefined,
+    low = undefined,
+    close = undefined
   }.
 
 
@@ -111,6 +131,10 @@ lowest(Anything, _NoMatter) ->
 timestamp(#md{timestamp = Timestamp}) -> Timestamp;
 timestamp(#trade{timestamp = Timestamp}) -> Timestamp.
 
+value(_, #trade{price = Price}) -> Price;
+value(high, #md{ask = [{Ask, _}|_]}) -> Ask;
+value(low,  #md{bid = [{Bid, _}|_]}) -> Bid;
+value(_, #md{} = MD) -> (value(high, MD) + value(low, MD))/2.
 
 test_candle(Input) ->
   test_candle(Input, undefined).
